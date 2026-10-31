@@ -1,0 +1,9 @@
+# Credentials and generated kubeconfigs: never committed.
+out/
+*.kubeconfig
+.envrc
+# Course materials are the lecturer's; local reference only.
+_course-materials/
+.DS_Store
+# Local working plan.
+PLAN.md
