@@ -6,7 +6,7 @@ This page is for the reviewer. It lists what the repository builds for Module 02
 
 | Task | What exists | Where |
 |---|---|---|
-| 1. Cluster, namespaces, kubeconfigs, RBAC | kind cluster `k8s-prod` (1 control plane, 3 workers); namespaces `mentor`, `student01`, `student02`, `student03`; one kubeconfig per person; 9 RoleBindings | `cluster/kind.yaml`, `platform/namespaces.yaml`, `platform/rbac.yaml`, `scripts/make-user.sh` |
+| 1. Cluster, namespaces, kubeconfigs, RBAC | kind cluster `k8s-prod` (1 control plane, 3 workers); namespaces `mentor`, `student01`, `student02`, `student03`; one kubeconfig per person; 9 RoleBindings; Pod Security labels on the four person namespaces | `cluster/kind.yaml`, `platform/namespaces.yaml`, `platform/rbac.yaml`, `scripts/make-user.sh` |
 | 2. Readonly root filesystem, audit mode | ValidatingPolicy `require-ro-rootfs` with action Audit | `platform/policies/require-ro-rootfs.yaml` |
 | 3. `person` label on pods | MutatingPolicy `person-label` | `platform/policies/person-label.yaml` |
 
@@ -68,6 +68,47 @@ Properties that matter for the review:
 - No ClusterRoleBinding names a person or one of the two groups. Nobody has cluster-admin, and nobody has any cluster-scoped right (nodes, namespaces, ClusterRoleBindings).
 - `edit` cannot create or change Roles and RoleBindings, so nobody can grant themselves more. `view` does not include Secrets.
 - The mentor has no rights in `default` or `kube-system`. Each student has none outside the namespaces listed above.
+
+## Pod Security
+
+`edit` includes creating pods, and without Pod Security admission a pod may be privileged or mount the node's filesystem with `hostPath`. Such a pod, optionally pinned to the control-plane node with `nodeName` and a toleration, can read the node's admin credentials and make its creator cluster-admin, although no binding says so.
+
+The four namespaces `mentor`, `student01`, `student02` and `student03` carry these labels (`platform/namespaces.yaml`):
+
+| Label | Value |
+|---|---|
+| `pod-security.kubernetes.io/enforce` | `baseline` |
+| `pod-security.kubernetes.io/warn`, `pod-security.kubernetes.io/audit` | `restricted` |
+| the matching `-version` label of each | `v1.37` |
+
+**Why baseline and not restricted.** Baseline rejects privileged containers, `hostPath` volumes, host namespaces (`hostNetwork`, `hostPID`, `hostIPC`), host ports and added capabilities. That closes every route from a pod to the node, and ordinary pods still pass. Restricted would also reject every pod without a full `securityContext` (non-root, all capabilities dropped, a seccomp profile), so the plain `busybox` pods of this lab would stop working. Restricted is set as `warn` and `audit` only: `kubectl` prints a warning when a pod would not pass it, and nothing is blocked. The version labels pin the rules to Kubernetes v1.37, so a cluster upgrade does not change them silently.
+
+`default` and the system namespaces are not labelled. No person can create pods there: student02 has only `view` in `default`.
+
+**Students cannot relax the labels.** They sit on the Namespace object, which is cluster-scoped. `edit` in a namespace gives no right to change that Namespace, so `kubectl label namespace student01 pod-security.kubernetes.io/enforce=privileged --overwrite` is forbidden for student01. Only the cluster admin can change the labels, by editing `platform/namespaces.yaml` and applying it.
+
+`scripts/verify-rbac.sh` checks this with student01's own kubeconfig in `student01`. student01 has `edit` there, so a denial can only come from Pod Security, and the script requires the error text to contain `PodSecurity`, not only `forbidden`. The hostPath pod mounts `/` and is pinned to the control-plane node with a toleration. Denied pods are rejected with messages like:
+
+```
+pods "x" is forbidden: violates PodSecurity "baseline:v1.37": privileged (container "c" must not set securityContext.privileged=true)
+```
+
+The ordinary pod is admitted with only the restricted warning, and all pods the script creates are deleted. It also reads the `enforce` label of `mentor`, `student01`, `student02` and `student03` with the admin kubeconfig, so dropping the label from any of the four fails the script. The relabel check is a server-side dry run, so a failing check cannot leave the namespace relaxed. The new lines from a real run:
+
+```
+== pod security
+  ok    student01 creates a privileged pod                         denied
+  ok    student01 creates a hostPath / pod on the control plane    denied
+  ok    student01 creates a hostNetwork pod                        denied
+  ok    student01 creates an ordinary pod                          admitted
+  ok    student01 relabels student01 to privileged                 forbidden
+  ok    mentor: pod security enforce label                         baseline
+  ok    student01: pod security enforce label                      baseline
+  ok    student02: pod security enforce label                      baseline
+  ok    student03: pod security enforce label                      baseline
+```
+
+The checks can fail. After `kubectl label ns student01 pod-security.kubernetes.io/enforce-` the first three lines print `FAIL ... admitted (expected denied)`, the label line prints `FAIL ... none (expected baseline)`, and the script exits 1. `kubectl apply -k platform/` restores the label.
 
 ## Policies
 
@@ -131,9 +172,9 @@ Test Summary: 13 tests passed and 0 tests failed
 
 ### 2. RBAC matrix
 
-`scripts/verify-rbac.sh` uses each person's own kubeconfig (real client certificates, not `--as`). For every person and every namespace in `mentor`, `student01`, `student02`, `student03`, `default`, `kube-system` it asks four questions: get pods, list secrets, create deployments, delete pods. It then asks the cluster-wide and self-escalation questions. After that it makes real API calls, and finally lists ClusterRoleBindings.
+`scripts/verify-rbac.sh` uses each person's own kubeconfig (real client certificates, not `--as`). For every person and every namespace in `mentor`, `student01`, `student02`, `student03`, `default`, `kube-system` it asks four questions: get pods, list secrets, create deployments, delete pods. It then asks the cluster-wide and self-escalation questions. After that it makes real API calls, runs the pod security checks described above, and finally lists ClusterRoleBindings.
 
-There are 129 checks. All of them passed. The block for student02, the person with the mixed grants:
+There are 138 checks. All of them passed. The block for student02, the person with the mixed grants:
 
 ```
 == student02 (["students","system:authenticated"])
@@ -169,7 +210,7 @@ There are 129 checks. All of them passed. The block for student02, the person wi
   ok    student02: impersonate users                               no
 ```
 
-The real API calls and the final lines:
+The real API calls, the pod security checks and the final lines:
 
 ```
 == real API calls
@@ -181,6 +222,16 @@ The real API calls and the final lines:
   ok    mentor creates a ConfigMap in student02                    ok
   ok    mentor lists pods in kube-system                           forbidden
   ok    student03 lists all namespaces                             forbidden
+== pod security
+  ok    student01 creates a privileged pod                         denied
+  ok    student01 creates a hostPath / pod on the control plane    denied
+  ok    student01 creates a hostNetwork pod                        denied
+  ok    student01 creates an ordinary pod                          admitted
+  ok    student01 relabels student01 to privileged                 forbidden
+  ok    mentor: pod security enforce label                         baseline
+  ok    student01: pod security enforce label                      baseline
+  ok    student02: pod security enforce label                      baseline
+  ok    student03: pod security enforce label                      baseline
 == no cluster-wide binding names a person
   ok    ClusterRoleBindings for mentor/students/groups             
 RBAC: all checks passed

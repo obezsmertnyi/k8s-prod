@@ -62,6 +62,43 @@ call "student03 lists all namespaces" forbidden student03 get namespaces
 kubectl delete configmap rbac-probe -n student01 --ignore-not-found >/dev/null
 kubectl delete configmap rbac-probe -n student02 --ignore-not-found >/dev/null
 
+echo "== pod security"
+# student01 has edit in student01, so a denial here can only come from Pod Security admission.
+mark=verify-rbac   # label on every pod made in this section, used for cleanup
+cleanup() { kubectl delete pods -n student01 -l "$mark=run" --now --ignore-not-found >/dev/null 2>&1; }
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+cleanup
+node=$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[0].metadata.name}')
+admit() { # admit <label> <expected denied|admitted> <pod name> <extra container fields JSON> <extra pod spec fields JSON>
+  local out rc got=error
+  out=$(jq -n --arg n "$3" --arg m "$mark" --argjson c "$4" --argjson s "$5" '{apiVersion: "v1", kind: "Pod",
+      metadata: {name: $n, labels: {($m): "run"}},
+      spec: ({containers: [{name: "c", image: "busybox:1.37", command: ["sleep", "3600"],
+        resources: {requests: {cpu: "10m", memory: "16Mi"}}} + $c]} + $s)}' |
+    kubectl --kubeconfig "$dir/student01.kubeconfig" create -n student01 -f - 2>&1); rc=$?
+  # Admitted is the exit code: restricted warnings also name PodSecurity but do not block the pod.
+  [ $rc -eq 0 ] && got=admitted
+  [ $rc -ne 0 ] && grep -q 'violates PodSecurity' <<<"$out" && got=denied
+  check "$1" "$2" "$got"
+}
+admit "student01 creates a privileged pod" denied rbac-probe-privileged '{"securityContext": {"privileged": true}}' '{}'
+admit "student01 creates a hostPath / pod on the control plane" denied rbac-probe-hostpath \
+  '{"volumeMounts": [{"name": "host", "mountPath": "/host", "readOnly": true}]}' \
+  "$(jq -cn --arg n "$node" '{nodeName: $n, volumes: [{name: "host", hostPath: {path: "/"}}],
+    tolerations: [{key: "node-role.kubernetes.io/control-plane", operator: "Exists", effect: "NoSchedule"}]}')"
+admit "student01 creates a hostNetwork pod" denied rbac-probe-hostnet '{}' '{"hostNetwork": true}'
+admit "student01 creates an ordinary pod" admitted rbac-probe-plain '{}' '{}'
+cleanup
+# Dry run: authorization is decided the same way, and a failed check cannot leave the namespace relaxed.
+call "student01 relabels student01 to privileged" forbidden student01 label namespace student01 \
+  pod-security.kubernetes.io/enforce=privileged --overwrite --dry-run=server
+# Read with the admin kubeconfig: dropping the label from any person namespace must fail the script.
+for ns in mentor student01 student02 student03; do
+  check "$ns: pod security enforce label" baseline \
+    "$(kubectl get namespace "$ns" -o json | jq -r '.metadata.labels["pod-security.kubernetes.io/enforce"] // "none"')"
+done
+
 echo "== no cluster-wide binding names a person"
 bound=$(kubectl get clusterrolebindings -o json | jq -r '.items[] | select(any(.subjects[]?;
   (.kind == "User" and (.name | test("^(mentor|student0[1-3])$"))) or
