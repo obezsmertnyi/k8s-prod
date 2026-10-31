@@ -1,0 +1,8 @@
+# Namespace label that carries the role (`student` or `mentor`). Must match the tenants chart.
+roleLabel: k8s-prod.io/role
+
+# require-ro-rootfs: Audit records findings in a PolicyReport; [Deny] would block the pod.
+validationActions: [Audit]
+
+# Platform namespaces stay out of require-ro-rootfs, so the report lists workload findings only.
+excludedNamespaces: [kube-system, kube-public, kube-node-lease, kyverno, local-path-storage]

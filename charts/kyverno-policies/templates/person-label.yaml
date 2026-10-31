@@ -17,7 +17,7 @@ spec:
         resources: [pods]
   variables:
     - name: role
-      expression: namespaceObject.metadata.?labels[?'k8s-prod.io/role'].orValue('')
+      expression: namespaceObject.metadata.?labels[?'{{ .Values.roleLabel }}'].orValue('')
     - name: wanted
       expression: "variables.role in ['student', 'mentor'] ? variables.role : ''"
     - name: present

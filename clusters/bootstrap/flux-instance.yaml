@@ -1,0 +1,19 @@
+# Applied by `make flux`, which replaces @BRANCH@ with the branch Flux follows. Not part of the synced path.
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  distribution:
+    version: "2.10.x"
+    registry: ghcr.io/fluxcd
+  cluster:
+    type: kubernetes
+  sync:
+    kind: GitRepository
+    provider: github
+    url: https://github.com/obezsmertnyi/k8s-prod.git
+    ref: refs/heads/@BRANCH@
+    path: clusters/k8s-prod
+    pullSecret: flux-system

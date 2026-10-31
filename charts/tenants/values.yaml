@@ -1,0 +1,24 @@
+# Namespace label the Kyverno policies select on. Only the cluster admin can set it on a Namespace.
+roleLabel: k8s-prod.io/role
+
+# The mentor: a user and a namespace of the same name, with `edit` in every person namespace.
+mentor: mentor
+
+# Each student: a user and a namespace of the same name, with `edit` in their own namespace.
+students:
+  - student01
+  - student02
+  - student03
+
+# Access outside a person's own namespace, as RoleBindings to a built-in ClusterRole (`view` or `edit`).
+extraGrants:
+  - user: student02
+    role: view
+    namespaces: [student01, default]
+
+# Pod Security admission on every person namespace: enforce baseline, warn and audit restricted.
+podSecurity:
+  enforce: baseline
+  warn: restricted
+  audit: restricted
+  version: v1.37
