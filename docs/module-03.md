@@ -179,22 +179,75 @@ flux get helmreleases -n flux-system
 
 ## Live run
 
-Placeholder: to be filled with real output after `module-03` is pushed and `make up` has run.
+The lab was rebuilt from zero with `make down && make up` (exit 0): the cluster follows `refs/heads/module-03` at `5bf15f2`, everything came from Git, and the log holds 159 `ok` lines.
 
 ### make up
 
 ```
-(output to be added)
-```
-
-### make verify
-
-```
-(output to be added)
+Flux: everything is Ready
+Test Summary: 13 tests passed and 0 tests failed
+RBAC: all checks passed
+Policies: all checks passed
+Flux: all checks passed
 ```
 
 ### Flux state
 
 ```
-(output of: flux get kustomizations -n flux-system; flux get helmreleases -n flux-system)
+$ flux get kustomizations -A
+NAMESPACE    NAME            REVISION                            SUSPENDED  READY  MESSAGE
+flux-system  flux-system     refs/heads/module-03@sha1:5bf15f28  False      True   Applied revision: refs/heads/module-03@sha1:5bf15f28
+flux-system  infrastructure  refs/heads/module-03@sha1:5bf15f28  False      True   Applied revision: refs/heads/module-03@sha1:5bf15f28
+flux-system  platform        refs/heads/module-03@sha1:5bf15f28  False      True   Applied revision: refs/heads/module-03@sha1:5bf15f28
+
+$ flux get helmreleases -A
+NAMESPACE    NAME              REVISION            SUSPENDED  READY  MESSAGE
+flux-system  kyverno           3.9.2               False      True   Helm install succeeded for release kyverno/kyverno.v1 with chart kyverno@3.9.2
+flux-system  kyverno-policies  0.1.0+5bf15f283c1b  False      True   Helm install succeeded for release flux-system/kyverno-policies.v1 with chart kyverno-policies@0.1.0+5bf15f283c1b
+flux-system  tenants           0.1.0+5bf15f283c1b  False      True   Helm install succeeded for release flux-system/tenants.v1 with chart tenants@0.1.0+5bf15f283c1b
+
+$ kubectl get fluxinstance -n flux-system
+NAME   AGE     READY   STATUS                             REVISION
+flux   8m45s   True    Reconciliation finished in 1m25s   v2.10.0@sha256:94bda7818110a743279dcc03cc80341ce399c9fc81e0e043444e6feb3787805d
+
+$ kubectl get policyreport -n flux-system -o custom-columns=NAME:.scope.name,PASS:.summary.pass,FAIL:.summary.fail
+NAME                                       PASS   FAIL
+notification-controller-7df89fc4ff         1      0
+source-controller-6bf94f6c78               1      0
+kustomize-controller-57f9457655-zmdwc      2      0
+source-controller                          1      0
+kustomize-controller                       1      0
+kustomize-controller-57f9457655            1      0
+helm-controller-7b45f6fcd                  1      0
+notification-controller-7df89fc4ff-xgd2x   2      0
+flux-operator-784b66fbc5-h2jt2             2      0
+flux-operator                              1      0
+notification-controller                    1      0
+source-controller-6bf94f6c78-gt2tq         2      0
+helm-controller                            1      0
+helm-controller-7b45f6fcd-zxz2t            2      0
+flux-operator-784b66fbc5                   1      0
 ```
+
+### scripts/verify-flux.sh
+
+```
+scripts/verify-flux.sh
+== flux objects
+  ok    fluxinstance/flux is Ready                                 True
+  ok    kustomization/flux-system is Ready                         True
+  ok    kustomization/infrastructure is Ready                      True
+  ok    kustomization/platform is Ready                            True
+  ok    helmrelease/kyverno is Ready                               True
+  ok    helmrelease/tenants is Ready                               True
+  ok    helmrelease/kyverno-policies is Ready                      True
+  ok    every other Kustomization and HelmRelease is Ready
+== git revision
+  ok    GitRepository flux-system is at the head of refs/heads/module-03 5bf15f283c1bcd9c71eafe94cf94af950b1c62fd
+== drift self-heal
+  ok    student01-edit in student01 is deleted
+  ok    student01-edit is back after the reconcile (role subject)  edit student01
+Flux: all checks passed
+```
+
+The RoleBinding `student01-edit` was deleted by hand, and after `flux reconcile helmrelease tenants --force` it was back with the role `edit` for `student01`, so drift detection restored it.
