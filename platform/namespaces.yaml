@@ -1,0 +1,28 @@
+# The role label is what the policies select on. Namespaces are cluster-scoped, so only the cluster admin can set it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mentor
+  labels:
+    k8s-prod.io/role: mentor
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student01
+  labels:
+    k8s-prod.io/role: student
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student02
+  labels:
+    k8s-prod.io/role: student
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: student03
+  labels:
+    k8s-prod.io/role: student

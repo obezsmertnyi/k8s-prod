@@ -1,0 +1,32 @@
+# Audit only: a pod with a writable root filesystem is admitted and reported (PolicyReport, event), never blocked.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-ro-rootfs
+spec:
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    # Platform namespaces stay out, so the report lists workload findings only.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: [kube-system, kube-public, kube-node-lease, kyverno, local-path-storage]
+  variables:
+    - name: allContainers
+      expression: >-
+        object.spec.containers + object.spec.?initContainers.orValue([]) + object.spec.?ephemeralContainers.orValue([])
+  validations:
+    - expression: >-
+        variables.allContainers.all(c, c.?securityContext.?readOnlyRootFilesystem.orValue(false) == true)
+      messageExpression: >-
+        'readOnlyRootFilesystem must be true; writable: ' + variables.allContainers.filter(c,
+        c.?securityContext.?readOnlyRootFilesystem.orValue(false) != true).map(c, c.name).join(', ')

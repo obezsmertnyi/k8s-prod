@@ -1,0 +1,34 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: require-ro-rootfs
+policies:
+  - ../../../platform/policies/require-ro-rootfs.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: require-ro-rootfs
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [pod-pass]
+    result: pass
+  - policy: require-ro-rootfs
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [pod-fail-container]
+    result: fail
+  - policy: require-ro-rootfs
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [pod-fail-init]
+    result: fail
+  - policy: require-ro-rootfs
+    isValidatingPolicy: true
+    kind: Deployment
+    resources: [deploy-fail]
+    result: fail
+  - policy: require-ro-rootfs
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [pod-kube-system]
+    result: skip
