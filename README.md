@@ -19,11 +19,11 @@ Homework for the course "Kubernetes in Production". The lab runs on a local kind
 - flux CLI 2.10 and kubeconform 0.8 (the second one only for `make lint`)
 - istioctl 1.31, used by `make verify` (`scripts/verify-mesh.sh`)
 - bash 4 or newer for the scripts. macOS ships `/bin/bash` 3.2, which is too old: install a current bash (`brew install bash`) and make sure it comes first in `PATH`.
-- jq and openssl, used by the scripts
+- jq and openssl, used by the scripts (jq also by `make lint`)
 
 ## One-time setup: a GitHub App for Flux
 
-The repository is private. Flux reads it with a GitHub App, so no deploy key or personal token goes into the cluster.
+Flux reads the repository with a GitHub App, so no deploy key or personal token goes into the cluster. A public repository would need no credentials at all; the App works the same for private and public ones.
 
 1. Create a GitHub App (Settings, Developer settings, GitHub Apps) with the repository permission Contents set to read-only. Leave the webhook inactive.
 2. Install the App on this repository only.
@@ -38,12 +38,14 @@ FLUX_APP_KEY=out/flux-github-app.pem
 
 `make flux` reads this file. `out/` is git-ignored.
 
+5. Optional, for Module 05: create `out/lab.env` with the address the alert email goes to (`ALERT_EMAIL=you@example.com`). `make flux` turns it into the Secret `lab-settings`, from which Flux fills `${ALERT_EMAIL}` in the Alertmanager config, so the address never enters Git. Without it the alerts go to `alerts@k8s-prod.lab`; either way Mailpit catches them inside the cluster.
+
 ## Quick start
 
 ```
-make up       # kind cluster, Flux, then Flux deploys Kyverno, Istio, namespaces, RBAC and policies from Git; user kubeconfigs; the checks
-make verify   # run the checks again: unit tests, RBAC matrix, policy behaviour, the mesh, Flux state
-make lint     # helm lint and kubeconform on the charts and the Flux manifests
+make up       # kind cluster, Flux, then Flux deploys Kyverno, Istio, the monitoring stack, namespaces, RBAC, policies and dashboards from Git; user kubeconfigs; the checks
+make verify   # run the checks again: unit tests, RBAC matrix, policy behaviour, the mesh, observability, Flux state
+make lint     # helm lint and kubeconform on the charts and the Flux manifests, JSON check of the dashboards
 make down     # delete the cluster and the generated kubeconfigs
 ```
 
@@ -56,6 +58,7 @@ Flux reads the cluster state from GitHub, so the branch you are on must be pushe
 - [Module 02: Security and policy as code](docs/module-02.md)
 - [Module 03: GitOps with Flux and Helm charts](docs/module-03.md)
 - [Module 04: Istio service mesh](docs/module-04.md)
+- [Module 05: Observability and troubleshooting](docs/module-05.md)
 
 ## Security note
 

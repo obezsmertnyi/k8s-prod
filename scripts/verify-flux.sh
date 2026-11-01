@@ -19,7 +19,8 @@ ready() { # ready <kind/name> -> True, False, or empty if the object is missing
 echo "== flux objects"
 for o in fluxinstance/flux kustomization/flux-system kustomization/infrastructure kustomization/platform \
   helmrelease/kyverno helmrelease/istio-base helmrelease/istio-cni helmrelease/istiod \
-  helmrelease/tenants helmrelease/kyverno-policies; do
+  helmrelease/kube-prometheus-stack helmrelease/loki helmrelease/alloy \
+  helmrelease/tenants helmrelease/kyverno-policies helmrelease/observability; do
   check "$o is Ready" True "$(ready "$o")"
 done
 others="cannot list them"

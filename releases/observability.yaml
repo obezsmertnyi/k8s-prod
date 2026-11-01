@@ -1,0 +1,35 @@
+# The dashboards, the Loki alert rule, the Kyverno metric scrape and the demo load, from charts/observability. It waits for the
+# monitoring stack (the CRDs of its ServiceMonitor and PrometheusRule, the Grafana sidecar that loads the dashboards, the Loki
+# rules sidecar), for the student namespaces of the tenants chart, and for the policies, so the demo pods start with their sidecar.
+# The release lives in monitoring, where the dashboards and the rule are read; the demo Deployments name their namespaces themselves.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: observability
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: kube-prometheus-stack
+    - name: loki
+    - name: alloy
+    - name: tenants
+    - name: kyverno-policies
+  interval: 10m
+  releaseName: observability
+  targetNamespace: monitoring
+  storageNamespace: monitoring
+  chart:
+    spec:
+      chart: ./charts/observability
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+  driftDetection:
+    mode: enabled
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3

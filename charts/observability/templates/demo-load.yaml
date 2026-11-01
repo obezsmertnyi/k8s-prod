@@ -1,0 +1,53 @@
+{{- /*
+One Deployment per student namespace. The pods are student pods, so Kyverno marks them and Istio adds the sidecar.
+The container is non-root, drops all capabilities and has a read-only root filesystem: it passes Pod Security baseline
+and restricted, and require-ro-rootfs reports no finding for it.
+*/}}
+{{- if .Values.demoLoad.enabled }}
+{{- range .Values.students }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-load
+  namespace: {{ . }}
+  labels:
+    app.kubernetes.io/name: demo-load
+spec:
+  replicas: {{ $.Values.demoLoad.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-load
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: demo-load
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      # One replica per worker (the control plane is tainted), so every node shows load for every student. ScheduleAnyway
+      # would let the scheduler stack them on two nodes. Honor leaves the tainted control plane out of the count.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: demo-load
+      containers:
+        - name: burn
+          image: {{ $.Values.demoLoad.image }}
+          command: [sh, -c, "while :; do :; done"]
+          resources: {{- toYaml $.Values.demoLoad.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+{{- end }}
+{{- end }}

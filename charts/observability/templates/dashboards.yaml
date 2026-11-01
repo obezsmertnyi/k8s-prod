@@ -1,0 +1,17 @@
+{{- /*
+Every file in dashboards/ becomes a ConfigMap with the label the Grafana sidecar watches (grafana_dashboard: "1").
+The files are read with .Files, not rendered, so the {{ }} of Grafana legends stay as they are.
+*/}}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-{{ base $path | trimSuffix ".json" }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}

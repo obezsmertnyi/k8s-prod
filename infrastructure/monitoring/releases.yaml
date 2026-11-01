@@ -1,0 +1,359 @@
+# kube-prometheus-stack 92.17.0: Prometheus Operator, Prometheus, Alertmanager, Grafana, kube-state-metrics, node-exporter.
+# It also carries the CRDs (ServiceMonitor, PrometheusRule, ...) that charts/observability needs, so everything that uses
+# them waits for this release. install.crds and upgrade.crds are CreateReplace: Helm itself never upgrades CRDs.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 10m
+  releaseName: kube-prometheus-stack
+  targetNamespace: monitoring
+  storageNamespace: monitoring
+  chartRef:
+    kind: OCIRepository
+    name: kube-prometheus-stack
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  values:
+    # kind has no reachable etcd, controller-manager, scheduler or kube-proxy metrics endpoint (they listen on
+    # 127.0.0.1 inside the control plane node). Without these switches the targets show as down and their rules fire.
+    kubeEtcd:
+      enabled: false
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+    defaultRules:
+      rules:
+        etcd: false
+        kubeControllerManager: false
+        kubeProxy: false
+        kubeSchedulerAlerting: false
+        kubeSchedulerRecording: false
+        windows: false
+      # The kind nodes share the clock of the Docker VM and report it as not synchronised, so this alert is always on.
+      disabled:
+        NodeClockNotSynchronising: true
+    windowsMonitoring:
+      enabled: false
+    prometheusOperator:
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+    prometheus:
+      prometheusSpec:
+        replicas: 1
+        retention: 2d
+        scrapeInterval: 30s
+        # Pick up the ServiceMonitors and PrometheusRules of any namespace and without the chart's release label,
+        # so those of charts/observability are scraped and loaded.
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+        resources:
+          requests:
+            cpu: 100m
+            memory: 400Mi
+          limits:
+            memory: 1Gi
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              accessModes: [ReadWriteOnce]
+              resources:
+                requests:
+                  storage: 5Gi
+    alertmanager:
+      alertmanagerSpec:
+        replicas: 1
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+      # This replaces the chart's default configuration, so the default routing is written out again: the null
+      # receiver and Watchdog (the always-firing heartbeat) stay. One route is added in front of them: the read-only
+      # root filesystem alert goes to the email receiver.
+      # The delivery is simulated: the receiver's SMTP server is Mailpit, in this namespace. The mail is caught there and
+      # nothing leaves the cluster. The recipient is not in Git: Flux replaces ${ALERT_EMAIL} when it applies this file,
+      # with the value from the Secret lab-settings in flux-system (the `infrastructure` Kustomization reads it), and
+      # alerts@k8s-prod.lab when that Secret does not exist.
+      config:
+        global:
+          resolve_timeout: 5m
+        inhibit_rules:
+          - source_matchers: ['severity = "critical"']
+            target_matchers: ['severity =~ "warning|info"']
+            equal: [namespace, alertname]
+          - source_matchers: ['severity = "warning"']
+            target_matchers: ['severity = "info"']
+            equal: [namespace, alertname]
+          - source_matchers: ['alertname = "InfoInhibitor"']
+            target_matchers: ['severity = "info"']
+            equal: [namespace]
+          - target_matchers: ['alertname = "InfoInhibitor"']
+        route:
+          receiver: "null"
+          group_by: [namespace]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+          routes:
+            - receiver: email
+              matchers: ['alertname = "ReadOnlyRootFilesystemAuditFailed"']
+              group_by: [alertname, namespace]
+              group_wait: 10s
+              group_interval: 1m
+              repeat_interval: 4h
+            - receiver: "null"
+              matchers: ['alertname = "Watchdog"']
+            - receiver: "null"
+              matchers: ['alertname = "InfoInhibitor"']
+        receivers:
+          - name: "null"
+          - name: email
+            email_configs:
+              - to: ${ALERT_EMAIL:=alerts@k8s-prod.lab}
+                from: alertmanager@k8s-prod.lab
+                smarthost: mailpit.monitoring.svc:1025
+                require_tls: false
+                send_resolved: false
+                headers:
+                  Subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} in {{ .CommonLabels.namespace }}'
+    grafana:
+      # The admin password is generated by the chart into the Secret kube-prometheus-stack-grafana; it is not in Git.
+      # Read it with: kubectl get secret -n monitoring kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+      defaultDashboardsEnabled: false
+      resources:
+        requests:
+          cpu: 50m
+          memory: 160Mi
+        limits:
+          memory: 384Mi
+      sidecar:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 48Mi
+          limits:
+            memory: 128Mi
+      additionalDataSources:
+        - name: Loki
+          uid: loki
+          type: loki
+          access: proxy
+          url: http://loki.monitoring.svc:3100
+          editable: false
+    kube-state-metrics:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 48Mi
+        limits:
+          memory: 128Mi
+    prometheus-node-exporter:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 24Mi
+        limits:
+          memory: 64Mi
+---
+# Loki 3.7.9 as one process on the filesystem: no object storage, no gateway, no caches, no canary. Auth is off, so every
+# stream and every rule belongs to the tenant "fake", and the ruler reads its rule files from /rules/fake. The rules
+# sidecar fills that directory from the ConfigMaps labelled loki_rule (any namespace), so a rule is added with a ConfigMap
+# and no Loki restart. The ruler sends the firing alerts to the Alertmanager of kube-prometheus-stack.
+# It waits for that release only because the chart's ServiceMonitor needs its CRDs.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: kube-prometheus-stack
+  interval: 10m
+  timeout: 10m
+  releaseName: loki
+  targetNamespace: monitoring
+  storageNamespace: monitoring
+  chartRef:
+    kind: OCIRepository
+    name: loki
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    deploymentMode: SingleBinary
+    loki:
+      auth_enabled: false
+      commonConfig:
+        replication_factor: 1
+      storage:
+        type: filesystem
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: filesystem
+            schema: v13
+            index:
+              prefix: index_
+              period: 24h
+      limits_config:
+        retention_period: 48h
+      compactor:
+        retention_enabled: true
+        delete_request_store: filesystem
+      rulerConfig:
+        alertmanager_url: http://kube-prometheus-stack-alertmanager.monitoring.svc:9093
+        enable_api: true
+        evaluation_interval: 30s
+        poll_interval: 30s
+        rule_path: /tmp/rules
+        ring:
+          kvstore:
+            store: inmemory
+        storage:
+          type: local
+          local:
+            directory: /rules
+    singleBinary:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 768Mi
+      persistence:
+        size: 5Gi
+    sidecar:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 48Mi
+        limits:
+          memory: 128Mi
+      rules:
+        folder: /rules/fake
+        searchNamespace: ALL
+        labelValue: "1"
+    read:
+      replicas: 0
+    write:
+      replicas: 0
+    backend:
+      replicas: 0
+    gateway:
+      enabled: false
+    chunksCache:
+      enabled: false
+    resultsCache:
+      enabled: false
+    lokiCanary:
+      enabled: false
+    test:
+      enabled: false
+---
+# Grafana Alloy 1.15.0 ships two things to Loki: the logs of every pod, read through the Kubernetes API, and the
+# Kubernetes events, which is where Kyverno reports its audit result. One replica: with several, each would read the same
+# pods and events and Loki would hold every line more than once.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: loki
+  interval: 10m
+  timeout: 5m
+  releaseName: alloy
+  targetNamespace: monitoring
+  storageNamespace: monitoring
+  chart:
+    spec:
+      chart: alloy
+      version: 1.15.0
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    controller:
+      type: deployment
+      replicas: 1
+    alloy:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 384Mi
+      configMap:
+        content: |
+          discovery.kubernetes "pods" {
+            role = "pod"
+          }
+
+          discovery.relabel "pods" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+              separator     = "/"
+              target_label  = "job"
+            }
+          }
+
+          loki.source.kubernetes "pods" {
+            targets    = discovery.relabel.pods.output
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.source.kubernetes_events "events" {
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+            }
+          }

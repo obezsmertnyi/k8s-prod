@@ -27,6 +27,9 @@ flux:
 	flux create secret githubapp flux-system --namespace flux-system --app-client-id "$$FLUX_APP_CLIENT_ID" \
 		--app-installation-owner "$$FLUX_APP_OWNER" --app-private-key "$$FLUX_APP_KEY" --export | \
 	kubectl apply --server-side --force-conflicts -f -
+	@# Values Flux substitutes into the manifests (the alert recipient) live in out/lab.env, not in Git.
+	@if [ -s out/lab.env ]; then kubectl create secret generic lab-settings --namespace flux-system \
+		--from-env-file out/lab.env --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -; fi
 	sed 's|@BRANCH@|$(BRANCH)|' clusters/bootstrap/flux-instance.yaml | kubectl apply -f -
 
 wait:
@@ -39,6 +42,7 @@ verify: test
 	scripts/verify-rbac.sh
 	scripts/verify-policies.sh
 	scripts/verify-mesh.sh
+	scripts/verify-observability.sh
 	scripts/verify-flux.sh
 
 # The unit tests run on what the charts render, not on a copy of the policies.
@@ -47,9 +51,11 @@ render:
 	helm template kyverno-policies charts/kyverno-policies --output-dir $(RENDERED)
 
 lint:
-	helm lint charts/tenants charts/kyverno-policies
+	helm lint charts/tenants charts/kyverno-policies charts/observability
 	helm template tenants charts/tenants | $(KUBECONFORM)
 	helm template kyverno-policies charts/kyverno-policies | $(KUBECONFORM)
+	helm template observability charts/observability | $(KUBECONFORM)
+	jq empty charts/observability/dashboards/*.json
 	kubectl kustomize infrastructure | $(KUBECONFORM)
 	kubectl kustomize releases | $(KUBECONFORM)
 	$(KUBECONFORM) clusters

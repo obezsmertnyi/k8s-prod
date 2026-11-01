@@ -1,0 +1,26 @@
+# Loki alerting rules for the ruler. Loaded through the ConfigMap templates/loki-rules.yaml.
+#
+# Kyverno 1.19 writes no log line for an audit failure. It emits a Kubernetes Event instead (reason PolicyViolation), one on
+# the Pod and one on the policy. Alloy ships events to Loki as log lines (job loki.source.kubernetes_events). The event of
+# the Pod carries the namespace label and the message "policy require-ro-rootfs/ fail: ...", which the event of the policy
+# does not, so this rule selects on both and counts the Pod's events.
+groups:
+  - name: readonly-rootfs
+    rules:
+      - alert: ReadOnlyRootFilesystemAuditFailed
+        expr: |
+          sum by (namespace, pod) (
+            count_over_time(
+              {job="loki.source.kubernetes_events", namespace=~".+"}
+                |= "reason=PolicyViolation"
+                |= "policy require-ro-rootfs/"
+                | logfmt
+                | label_format pod=name
+              [5m]
+            )
+          ) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} runs with a writable root filesystem"
+          description: "Kyverno require-ro-rootfs reported pod {{ $labels.pod }} in namespace {{ $labels.namespace }} in the last 5 minutes: a container does not set securityContext.readOnlyRootFilesystem to true. See the Grafana dashboard Read-only root filesystem audit."

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Waits until the GitOps bootstrap has converged: the FluxInstance, the three Kustomizations and the six
-# HelmReleases are Ready. Exits non-zero after the timeout. Usage: wait-flux.sh [seconds, default 1200]
+# Waits until the GitOps bootstrap has converged: the FluxInstance, the three Kustomizations and the ten
+# HelmReleases are Ready. Exits non-zero after the timeout. Usage: wait-flux.sh [seconds, default 1800]
 set -uo pipefail
 
 export KUBECONFIG="$PWD/out/admin.kubeconfig"
-deadline=$((SECONDS + ${1:-1200}))
+deadline=$((SECONDS + ${1:-1800}))
 objects=(
   fluxinstance/flux
   kustomization/flux-system kustomization/infrastructure kustomization/platform
   helmrelease/kyverno helmrelease/istio-base helmrelease/istio-cni helmrelease/istiod
-  helmrelease/tenants helmrelease/kyverno-policies
+  helmrelease/kube-prometheus-stack helmrelease/loki helmrelease/alloy
+  helmrelease/tenants helmrelease/kyverno-policies helmrelease/observability
 )
 
 ready() { # ready <kind/name> -> True, False, or empty while the object does not exist yet

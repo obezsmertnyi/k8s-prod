@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - tenants.yaml
   - kyverno-policies.yaml
+  - observability.yaml
