@@ -212,7 +212,7 @@ echo "== isolation: the stack accepts connections from its own namespace only (p
 sk=$dir/student01.kubeconfig
 # The NetworkPolicies are enforced by kindnet (kube-network-policies). If its controller did not start, the policies are inert and the
 # "blocked" checks below fail, which is what they are for.
-check "NetworkPolicies in $mon" "allow-ingress-from-monitoring allow-operator-admission-webhook default-deny-ingress" \
+check "NetworkPolicies in $mon" "allow-ingress-from-monitoring default-deny-ingress" \
   "$(kubectl get networkpolicy -n $mon -o name 2>/dev/null | sed 's|.*/||' | sort | paste -sd' ' -)"
 check "kindnet: no node logged 'skipping network policies'" 0 \
   "$(kubectl logs -n kube-system -l app=kindnet --tail=-1 2>/dev/null | grep -c 'skipping network policies')"

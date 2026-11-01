@@ -26,24 +26,7 @@ spec:
   ingress:
     - from:
         - podSelector: {}
----
-# 3. The Prometheus Operator admission webhook (PrometheusRule validation, failurePolicy Ignore) is called by the API server. That
-# is a host-network process on the control plane node, so its source is a node address that no selector can name. Only this one port
-# of the operator is open to it; the endpoint serves admission reviews over TLS and holds no data. Without the rule the API server
-# would wait for its timeout and skip the validation of every PrometheusRule.
+# 3. Nothing outside the namespace needs to get in. The Prometheus Operator admission webhook, which the API server would call
+# from a node address no selector can name, is turned off in the kube-prometheus-stack values instead of opening its port.
 # kubelet probes and `kubectl port-forward` need no rule: the probes come from root on the node, which kindnet does not filter, and
 # the runtime opens the port-forward from inside the pod's own network namespace.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-operator-admission-webhook
-  namespace: monitoring
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: kube-prometheus-stack-prometheus-operator
-  policyTypes: [Ingress]
-  ingress:
-    - ports:
-        - protocol: TCP
-          port: 10250
