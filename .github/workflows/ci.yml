@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: gitleaks (full history)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - name: Check out the full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The release binary, checked against a hash kept in this file. The official action is not used: it asks for a license key on organization repositories.
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/bin" gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Scan the history
+        run: gitleaks git . --redact --verbose --no-banner
+
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PRE_COMMIT_VERSION: "4.6.0"
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install pre-commit
+        run: python -m pip install "pre-commit==${PRE_COMMIT_VERSION}"
+
+      - name: Cache hook environments
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # SKIP=gitleaks: the hook scans staged changes, and there are none in CI. The gitleaks job scans the full history.
+      - name: Run all hooks
+        env:
+          SKIP: gitleaks
+        run: pre-commit run --all-files --show-diff-on-failure --color always
+
+  lint-and-test:
+    name: validate manifests and policy tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      HELM_VERSION: "4.1.3"
+      HELM_SHA256: 02ce9722d541238f81459938b84cf47df2fdf1187493b4bfb2346754d82a4700
+      FLUX_SCHEMA_VERSION: "0.17.0"
+      FLUX_SCHEMA_SHA256: d9a429f6c1c5fe687a1eee25a0c130e4d7abbc560d497a4ee9054ef4dff621ee
+      KYVERNO_VERSION: "1.19.2"
+      KYVERNO_SHA256: 357eaf1df8bc24ddd5a73979fadeaae6a032e8710f11af264229756e4956bf4a
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Release binaries, each checked against a hash kept in this file.
+      - name: Install helm, flux-schema and the Kyverno CLI
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          install_tool() { # url sha256 path-in-archive strip-components
+            archive="$RUNNER_TEMP/tool.tar.gz"
+            curl -fsSL --retry 3 -o "$archive" "$1"
+            echo "$2  $archive" | sha256sum --check --strict
+            tar -xzf "$archive" -C "$bin" --strip-components="$4" "$3"
+            rm -f "$archive"
+          }
+          install_tool "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
+            "$HELM_SHA256" linux-amd64/helm 1
+          install_tool "https://github.com/fluxcd/flux-schema/releases/download/v${FLUX_SCHEMA_VERSION}/flux-schema_${FLUX_SCHEMA_VERSION}_linux_amd64.tar.gz" \
+            "$FLUX_SCHEMA_SHA256" flux-schema 0
+          install_tool "https://github.com/kyverno/kyverno/releases/download/v${KYVERNO_VERSION}/kyverno-cli_v${KYVERNO_VERSION}_linux_x86_64.tar.gz" \
+            "$KYVERNO_SHA256" kyverno 0
+          echo "$bin" >> "$GITHUB_PATH"
+
+      # Charts and kustomizations rendered and checked against the schemas; a tree without any prints "nothing to validate".
+      - name: Validate manifests
+        run: scripts/validate-manifests.sh
+
+      - name: Policy tests
+        run: |
+          if [ -f Makefile ] && grep -qE '^test:' Makefile; then
+            make test
+          else
+            echo "nothing to test: no Makefile with a test target on this branch"
+          fi

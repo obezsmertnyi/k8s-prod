@@ -46,7 +46,9 @@ create() {
     out=$(jq -n --arg n "$3" --argjson p "$pod" '{apiVersion: "v1", kind: "Pod", metadata: ($p.metadata + {name: $n}),
         spec: $p.spec}' | kubectl --kubeconfig "$kc" apply -n "$2" -f - 2>&1); rc=$?
   fi
-  [ $rc -eq 0 ] && echo admitted || { grep -q 'violates PodSecurity' <<<"$out" && echo denied || echo "error: $out"; }
+  if [ "$rc" -eq 0 ]; then echo admitted
+  elif grep -q 'violates PodSecurity' <<<"$out"; then echo denied
+  else echo "error: $out"; fi
 }
 
 podof() { # podof <namespace> <name> -> the Pod itself, or the first Pod of the Deployment of that name
@@ -65,9 +67,9 @@ field() { # field <namespace> <pod> <jq filter>
 }
 
 report() { # report <namespace> <pod> -> require-ro-rootfs result and message, waits up to 60 s for the report
-  local uid i r=none
+  local uid r=none
   uid=$(kubectl get pod "$2" -n "$1" -o jsonpath='{.metadata.uid}' 2>/dev/null)
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     r=$(kubectl get policyreport "$uid" -n "$1" -o json 2>/dev/null | jq -r '[.results[]? |
       select(.policy == "require-ro-rootfs") | .result + " " + (.message // "")] | first // "none"')
     [ "${r:-none}" != none ] && break

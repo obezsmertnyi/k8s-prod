@@ -1,0 +1,56 @@
+# Local: `pre-commit install` once per clone (it installs the commit and the push hooks). CI runs this same file.
+# The commit hooks are quick; the two pre-push hooks render and validate the charts and run the policy tests.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+        # Helm templates hold {{ }} and are not YAML until rendered; scripts/validate-manifests.sh checks them rendered.
+        args: [--allow-multiple-documents]
+        exclude: ^charts/.*/templates/
+
+  # Staged changes only, with .gitleaks.toml. CI scans the whole history in its own job.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1-1
+    hooks:
+      - id: shellcheck
+        files: ^scripts/.*\.sh$
+
+  # GitHub Actions security linter: workflows, dependabot.yml and this file.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.31.1
+    hooks:
+      - id: zizmor
+
+  - repo: local
+    hooks:
+      # Needs helm, flux-schema and network. See scripts/validate-manifests.sh.
+      - id: validate-manifests
+        name: validate manifests (flux-schema)
+        entry: scripts/validate-manifests.sh
+        language: system
+        stages: [pre-push]
+        # platform/ is module 02's kustomization, before the charts and Flux.
+        files: ^(charts|clusters|infrastructure|releases|platform)/
+        pass_filenames: false
+      # `make test` renders the charts and runs the Kyverno unit tests; branches without that target have nothing to run.
+      - id: kyverno-test
+        name: kyverno unit tests (make test)
+        entry: bash -c 'if [ -f Makefile ] && grep -qE "^test:" Makefile; then make test; else echo "no make test target, skipped"; fi'
+        language: system
+        stages: [pre-push]
+        files: ^(charts|tests)/
+        pass_filenames: false

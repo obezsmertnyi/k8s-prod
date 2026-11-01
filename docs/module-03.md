@@ -26,7 +26,7 @@ After the one-time bootstrap, every change reaches the cluster through Git: edit
 | Kyverno | 1.19.2 (Helm chart 3.9.2) | `infrastructure/kyverno/release.yaml` |
 | Kubernetes | v1.37.0 (kind) | `cluster/kind.yaml` |
 
-Local tools: flux CLI v2.10.0, helm v4.1.3, kubeconform 0.8.0, kyverno CLI 1.19.2.
+Local tools: flux CLI v2.10.0 with the schema plugin (flux-schema 0.17.0), helm v4.1.3, kyverno CLI 1.19.2.
 
 ## Layout
 
@@ -137,7 +137,7 @@ It runs the steps below and stops at the first failing step. They can be run on 
 
 | Step | Command | What it proves |
 |---|---|---|
-| Chart lint | `make lint` | `helm lint` on both charts; `kubeconform -strict` on the rendered charts, on `infrastructure/`, on `releases/` and on `clusters/`. Every kind has a schema (the datree CRDs catalog covers the Kyverno and Flux kinds), so none is skipped: the summary lines end with `Skipped: 0` |
+| Chart lint | `make lint` | `scripts/validate-manifests.sh`: `helm lint` on both charts, then flux-schema (Flux's own validator) on the rendered charts and on every Flux layer (`infrastructure/`, `releases/`, `clusters/`): built-in catalog for Kubernetes and Flux kinds, the CRDs catalog for the Kyverno kinds, CEL validation rules, no kind skipped, built from git-tracked files only |
 | Policy unit tests | `make test` | renders `charts/kyverno-policies` into `.rendered/` (git-ignored) and runs `kyverno test tests/kyverno` on that output, so the tests check what the chart renders |
 | RBAC matrix | `scripts/verify-rbac.sh` | the Module 02 checks, now on the objects Flux deploys |
 | Policy behaviour | `scripts/verify-policies.sh` | the Module 02 checks, now on the policies Flux deploys |
