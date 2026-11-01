@@ -52,6 +52,10 @@ spec:
       # PrometheusRules are checked before they reach the cluster, by `make lint`.
       admissionWebhooks:
         enabled: false
+      # The operator's TLS certificate comes from the webhook machinery; without it the operator serves plain HTTP on
+      # :8080, reachable only from inside monitoring (networkpolicies.yaml).
+      tls:
+        enabled: false
       resources:
         requests:
           cpu: 20m
