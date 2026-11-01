@@ -7,7 +7,7 @@ This page is for the reviewer. It lists what the repository builds for Module 04
 | Task | What exists | Where |
 |---|---|---|
 | 1. Istio service mesh in sidecar mode | Istio 1.31.3 from the three official Helm charts (`base`, `cni`, `istiod`), installed by Flux as HelmReleases in `istio-system`. Sidecar injection uses the Istio CNI plugin, so injected pods need no `NET_ADMIN` init container | `infrastructure/istio/` |
-| 2. A Kyverno policy so that pods with `person: student` run with the Istio sidecar | MutatingPolicy `istio-sidecar-for-students`: it sets `sidecar.istio.io/inject: "true"` on student pods and the Istio injector adds the `istio-proxy` container. Kyverno turns the policy into a native MutatingAdmissionPolicy (see [the ordering trap](#the-ordering-trap)) | `charts/kyverno-policies/templates/istio-sidecar-for-students.yaml` |
+| 2. A Kyverno policy so that pods with `person: student` run with the Istio sidecar | Two policies. MutatingPolicy `istio-sidecar-for-students` sets `sidecar.istio.io/inject: "true"` on student pods and the Istio injector adds the `istio-proxy` container; Kyverno turns it into a native MutatingAdmissionPolicy (see [the ordering trap](#the-ordering-trap)). ValidatingPolicy `require-istio-sidecar-for-students` refuses a pod with the label `person: student` that has no `istio-proxy` (see [the guarantee](#the-guarantee-mutate-injects-validate-proves)) | `charts/kyverno-policies/templates/istio-sidecar-for-students.yaml`, `charts/kyverno-policies/templates/require-istio-sidecar-for-students.yaml` |
 
 Everything reaches the cluster through Git, like the earlier modules. `make verify` has a new step, `scripts/verify-mesh.sh`, and `make up` waits for the three new HelmReleases.
 
@@ -31,8 +31,10 @@ infrastructure/istio/
   namespace.yaml      istio-system, Pod Security enforce=privileged
   repositories.yaml   three OCIRepository objects, tag 1.31.3
   releases.yaml       HelmReleases istio-base, istio-cni, istiod
-charts/kyverno-policies/templates/istio-sidecar-for-students.yaml
+charts/kyverno-policies/templates/istio-sidecar-for-students.yaml           the mutation: inject label
+charts/kyverno-policies/templates/require-istio-sidecar-for-students.yaml   the validation: istio-proxy must be there
 tests/kyverno/istio-sidecar-for-students/
+tests/kyverno/require-istio-sidecar-for-students/
 scripts/verify-mesh.sh
 ```
 
@@ -93,6 +95,23 @@ Two consequences:
 - `person-label` is a webhook mutation, so it has not run yet when this policy is evaluated and its label is not visible. The policy therefore reads the namespace role, which is also where `person-label` takes its value from, and not the `person` label.
 - The generated policy has `failurePolicy: Fail`, like the Kyverno policy it comes from, and matches Pods in every namespace. An error in its expressions would block pod creation cluster-wide. The expressions use optional field access only, and the unit tests below cover the empty and missing label cases.
 
+## The guarantee: mutate injects, validate proves
+
+The requirement is about a label: every pod with `person: student` runs with the Istio sidecar. Two policies make it hold, one after the other.
+
+- **Mutate injects.** `istio-sidecar-for-students` sets the injection label and the Istio injector adds `istio-proxy`.
+- **Validate proves.** `require-istio-sidecar-for-students` is a `ValidatingPolicy` (`policies.kyverno.io/v1`, action `Deny`, Pods, CREATE). It reads the `person` label itself: a pod with `person: student` must have a container or an init container named `istio-proxy`, otherwise the API server refuses it with `pod <name> has the label person=student but no istio-proxy container: the Istio sidecar is missing`. Istio 1.31 injects the proxy as a native sidecar, in `initContainers`, so both lists are accepted.
+
+A validating webhook runs after every mutation, so the policy sees the final pod: after `person-label` set the label, after the generated MutatingAdmissionPolicy set the injection label and after the injector added the containers. The mutating policy cannot read the `person` label (it runs before `person-label`, see [the ordering trap](#the-ordering-trap)); the validating one can, and it does not depend on how the label got there. A pod that leaves admission with `person: student` has the sidecar, or it was not created.
+
+Decisions:
+
+- **Pods only.** Autogen for pod controllers is off. A generated rule would read the pod template of a Deployment, which never holds the sidecar (the injector adds it to the pod), and would refuse every Deployment that sets `person: student` in its template. Checked with `kyverno apply` on the policy without the `autogen` block: such a Deployment fails, with the block it is not evaluated.
+- **No namespace is excluded.** The `person` label is set by `person-label` in the student namespaces and removed everywhere else, so `istio-system`, `kyverno` and the other platform namespaces never carry it and the condition on the label already leaves them out. `excludedNamespaces` exists only to keep `require-ro-rootfs` findings to workloads.
+- **CREATE only.** Like the injection, the check runs when a pod is created. A pod that already runs keeps its shape until it is recreated. The background scan is on, as for `require-ro-rootfs`.
+- **The check is by name.** It proves that a container called `istio-proxy` is in the pod, not which image runs in it. The real one is added by the injector before this policy runs.
+- **Fails closed.** `failurePolicy` is `Fail` (the default of the CRD): an error while evaluating the policy refuses the pod instead of letting it through. The expressions use optional field access only, and the tests cover a pod without labels.
+
 ## How to verify
 
 One command, from the repository root, after `make up`:
@@ -113,6 +132,7 @@ scripts/verify-mesh.sh
 ```
 make render
 kyverno test tests/kyverno/istio-sidecar-for-students
+kyverno test tests/kyverno/require-istio-sidecar-for-students
 kyverno test tests/kyverno
 make lint
 ```
@@ -131,19 +151,35 @@ make lint
 | `mentor-optout`: pod in `mentor` with `inject: "false"` | unchanged |
 | `default-pod`: pod in `default` | unchanged |
 
-`kyverno test tests/kyverno` runs all 22 tests (13 from Module 02 and 9 new). `make lint` runs helm lint and flux-schema on the charts and on every Flux layer, including the Istio OCIRepositories and HelmReleases in `infrastructure/istio/`.
+`kyverno test tests/kyverno/require-istio-sidecar-for-students` runs six cases on the rendered ValidatingPolicy, with pods in the shape the policy sees (after `person-label` and the injector):
+
+| Case | Expected |
+|---|---|
+| `student-sidecar-init`: `person: student`, `istio-proxy` in `initContainers` (native sidecar) | pass |
+| `student-sidecar-container`: `person: student`, `istio-proxy` in `containers` | pass |
+| `student-no-sidecar`: `person: student`, no `istio-proxy` | fail |
+| `student-init-without-proxy`: `person: student`, only `istio-validation` in `initContainers` | fail |
+| `mentor-no-sidecar`: `person: mentor`, no `istio-proxy` | skip |
+| `no-labels-no-sidecar`: a pod without labels, no `istio-proxy` | skip |
+
+The tests can fail. Dropping the condition on the label from the policy turns the two skips into fails, and expecting `pass` for `student-no-sidecar` fails the run. A Deployment is not part of the tests: a resource the policy does not match has no result row for the CLI to compare.
+
+`kyverno test tests/kyverno` runs all 28 tests (13 from Module 02, 9 for the mutation and 6 for the validation). `make lint` runs helm lint and flux-schema on the charts and on every Flux layer, including the Istio OCIRepositories and HelmReleases in `infrastructure/istio/`.
 
 ### 2. The mesh on the cluster
 
 `scripts/verify-mesh.sh` creates throwaway workloads (a bare Pod and a one-replica Deployment in `student01`, both with student01's own kubeconfig, a pod in `mentor` and one in `default`) and removes them on exit. It checks:
 
-- istiod is Ready, `istio-cni-node` is Ready on every node, `istio-system` is `privileged`, the policy is Ready and the native MutatingAdmissionPolicy exists.
+- istiod is Ready, `istio-cni-node` is Ready on every node, `istio-system` is `privileged`, the policy is Ready and the native MutatingAdmissionPolicy exists. `require-istio-sidecar-for-students` is Ready too.
 - Both student pods are admitted under Pod Security `baseline` and have the init containers `istio-validation` and `istio-proxy` (native sidecar); `istio-proxy` is ready; the pod's own container list is only `app`.
 - A student pod whose manifest says `sidecar.istio.io/inject: "false"` still gets the sidecar.
+- A server-side dry-run create (`kubectl apply --dry-run=server`, as student01) of a pod labelled `person: student` is accepted. The whole admission chain runs, so this shows that the validation sees the pod after the injection: if it ran before, the pod would be refused.
 - The mentor and `default` pods have no sidecar and no injection label. This includes a `default` pod that sets `person: student` in its manifest: `person-label` removes the label and the policy does not look at it.
 - The sidecar runs the same version as istiod, has the 10m and 40Mi requests, and there is no `istio-init`.
 - `istioctl proxy-status` lists the student pods and does not list the mentor and `default` pods.
 - With the sidecar present, a student pod whose app is read-only passes `require-ro-rootfs`, and a pod with a writable app is reported for the `app` container only.
+
+There is no live deny check. A student pod gets its sidecar in the same admission, so the validation never refuses one while the mesh works, and every way to create a student pod without a sidecar needs a component to be broken or changed: `hostNetwork` pods are skipped by the injector but refused by Pod Security `baseline` before the validating webhooks run; a student namespace labelled `istio-injection: disabled` matches none of the four webhooks of the injector in the 1.31.3 chart (only the cluster admin can label a namespace, and that silent opt-out of a whole namespace is what the validation exists to catch); while istiod is down the injector itself rejects the pod. These come from the admission order and the rendered chart and were not run on the lab, and a test that breaks the mesh to prove a deny would weaken what it tests. The deny cases are covered by the Kyverno CLI tests above.
 
 The checks can fail. With the policy deleted, the script reports `FAIL` lines for the missing sidecar, the missing label and the pods absent from `proxy-status`, and exits 1.
 
@@ -173,11 +209,13 @@ kubectl get mutatingwebhookconfiguration istio-sidecar-injector -o jsonpath='{.w
 | `infrastructure/kustomization.yaml` | adds `istio` |
 | `releases/kyverno-policies.yaml` | `dependsOn` also lists `istiod` |
 | `charts/kyverno-policies/values.yaml` | `istio-system` added to `excludedNamespaces` (the Module 03 table lists the older default) |
-| `charts/kyverno-policies/Chart.yaml` | description mentions the new policy |
+| `charts/kyverno-policies/Chart.yaml` | description mentions the two new policies |
 | `scripts/wait-flux.sh`, `scripts/verify-flux.sh` | the three Istio HelmReleases are waited for and checked |
 | `Makefile` | `verify` runs `scripts/verify-mesh.sh` |
 
 ## Live run
+
+This run predates `require-istio-sidecar-for-students`: `make verify` now runs 28 unit tests, and the mesh step has two more checks (the validating policy is Ready, the dry-run of a student pod is accepted).
 
 The lab was rebuilt from zero with `make down && make up` (exit 0): the cluster follows `refs/heads/module-04` at `4a36dbc`, everything came from Git (Istio 1.31.3 charts from `ghcr.io`), and the log holds 197 `ok` lines and no `FAIL`.
 

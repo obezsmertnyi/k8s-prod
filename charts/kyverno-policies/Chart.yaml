@@ -1,5 +1,5 @@
 apiVersion: v2
 name: kyverno-policies
-description: Kyverno policies of the platform. require-ro-rootfs audits readonly root filesystems, person-label sets the person label on pods, istio-sidecar-for-students makes student pods run with the Istio sidecar
+description: Kyverno policies of the platform. require-ro-rootfs audits readonly root filesystems, person-label sets the person label on pods, istio-sidecar-for-students makes student pods run with the Istio sidecar, require-istio-sidecar-for-students refuses a student pod that has none
 type: application
 version: 0.1.0

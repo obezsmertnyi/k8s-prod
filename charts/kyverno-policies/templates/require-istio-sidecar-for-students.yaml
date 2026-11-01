@@ -1,0 +1,38 @@
+# Every pod with the label person=student must run with the Istio sidecar, or it is refused. istio-sidecar-for-students
+# makes the Istio injector add the sidecar; this policy checks the result. As a validating webhook it runs after every
+# mutation (person-label, the generated MutatingAdmissionPolicy, the injector), so it sees the final pod.
+# The sidecar is the container istio-proxy. Istio 1.31 injects it as a native sidecar, an init container with
+# restartPolicy Always, so initContainers count as well as containers.
+# The label is the one from the requirement. person-label sets it in the student namespaces and removes it everywhere
+# else, so platform pods never carry it and no namespace is excluded here.
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: require-istio-sidecar-for-students
+spec:
+  validationActions: [Deny]
+  # Only Pods carry the label. A generated rule on a Deployment would read its pod template, which never has the sidecar
+  # (the injector adds it to the pod), and would refuse every Deployment that sets person=student there.
+  autogen:
+    podControllers:
+      controllers: []
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  matchConditions:
+    - name: student-pod
+      expression: object.metadata.?labels[?'person'].orValue('') == 'student'
+  variables:
+    - name: containers
+      expression: object.spec.containers + object.spec.?initContainers.orValue([])
+  validations:
+    - expression: variables.containers.exists(c, c.name == 'istio-proxy')
+      messageExpression: >-
+        'pod ' + object.metadata.?name.orValue(object.metadata.?generateName.orValue('(unnamed)')) +
+        ' has the label person=student but no istio-proxy container: the Istio sidecar is missing'

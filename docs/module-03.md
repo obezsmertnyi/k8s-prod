@@ -12,7 +12,7 @@ This page is for the reviewer. It lists what the repository builds for Module 03
 After the one-time bootstrap, every change reaches the cluster through Git: edit, commit, push, and Flux applies it. `make up` runs these targets in order:
 
 1. `cluster`: creates the kind cluster.
-2. `flux`: installs the Flux Operator, creates the GitHub App secret and applies the `FluxInstance`. This is the only step that is not driven by Git.
+2. `flux`: installs the Flux Operator, creates the GitHub App secret when `out/flux-app.env` exists, and applies the `FluxInstance`. This is the only step that is not driven by Git.
 3. `wait`: waits until the FluxInstance, the three Kustomizations and the three HelmReleases are Ready.
 4. `users`: runs `scripts/make-user.sh` for the mentor and each student.
 5. `verify`: runs the checks described below.
@@ -56,15 +56,17 @@ The order of events on a new cluster:
 
 **Flux Operator.** The `FluxInstance` is one object that declares the Flux version (`2.10.x`) and the sync source. An upgrade is an edit of that version. `flux bootstrap` would commit Flux's own manifests to this repository and needs a token that can write to it; with the operator the cluster never writes to Git.
 
-**GitHub App.** The repository is private, so Flux needs a credential to read it. The App has one permission, Contents read-only, and is installed on this repository only. Flux exchanges the App's private key for installation tokens that expire after an hour. No deploy key and no personal token is stored in the cluster. The only secret is the App's private key in the Secret `flux-system` in the `flux-system` namespace; it is created by `make flux` from `out/`, which is git-ignored, and it is not in Git. To cut Flux off, uninstall the App from the repository.
+**GitHub App (optional).** A private repository needs a credential for Flux to read it. The App has one permission, Contents read-only, and is installed on this repository only. Flux exchanges the App's private key for installation tokens that expire after an hour. No deploy key and no personal token is stored in the cluster. The only secret is the App's private key in the Secret `flux-system` in the `flux-system` namespace; it is created by `make flux` from `out/`, which is git-ignored, and it is not in Git. To cut Flux off, uninstall the App from the repository.
+
+**Two bootstrap modes.** `make flux` picks the mode from `out/flux-app.env`. With the file it creates that Secret and applies the FluxInstance with `provider: github` and `pullSecret: flux-system`. Without it the repository must be public: `make flux` prints `no out/flux-app.env: public repository, Flux reads it without credentials`, creates no Secret and applies the FluxInstance without `provider` and `pullSecret`, so Flux reads the GitRepository over anonymous HTTPS. A reviewer can therefore run `make up` from a clone with no setup; the App is for a private repository or to avoid anonymous rate limits. In both modes the URL is the `origin` remote as `https://github.com/<owner>/<repo>.git` (`REPO_URL` overrides it).
 
 ## Bootstrap is the only imperative step
 
 `make flux` does three things and nothing else:
 
 1. `helm upgrade --install flux-operator` (chart 0.62.1) into `flux-system`.
-2. `flux create secret githubapp flux-system`, from the settings in `out/flux-app.env` (see the README for the one-time App setup).
-3. Applies `clusters/bootstrap/flux-instance.yaml` with the branch filled in.
+2. `flux create secret githubapp flux-system`, from the settings in `out/flux-app.env`, only when that file exists (see the README for the optional App setup).
+3. Applies `clusters/bootstrap/flux-instance.yaml` with the repository URL and the branch filled in, and without `provider` and `pullSecret` when there is no App.
 
 The branch Flux follows is a parameter: `BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)`. Until the module pull requests are merged the cluster follows the top branch (`module-03`). After the merge, run `make flux BRANCH=main` and the cluster follows `main`. The command is safe to repeat.
 

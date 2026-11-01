@@ -2,7 +2,9 @@
 # Checks the Istio mesh on the live cluster with throwaway workloads: the control plane is Ready, pods of the student
 # namespaces get the sidecar (a bare Pod and a Deployment, created with student01's own kubeconfig), mentor and default
 # pods do not (not even a default pod that sets person=student by hand), and the sidecar passes Pod Security baseline
-# and require-ro-rootfs.
+# and require-ro-rootfs. The validating policy require-istio-sidecar-for-students must be Ready and must accept a
+# student pod after the injection (server-side dry-run). It has no live deny check: every student pod without a sidecar
+# needs a broken component (see docs/module-04.md), so the deny cases are covered by the Kyverno CLI tests.
 # Exits non-zero if any answer differs from the expected one. Test workloads are removed on exit.
 set -uo pipefail
 
@@ -28,11 +30,13 @@ check() { # check <label> <expected> <actual>
   else printf '  FAIL  %-62s %s (expected %s)\n' "$1" "$3" "$2"; fail=1; fi
 }
 
-# create <kubeconfig user, or admin> <namespace> <name> <app readOnlyRootFilesystem> [pod labels as JSON]
+# create <kubeconfig user, or admin> <namespace> <name> <app readOnlyRootFilesystem> [pod labels as JSON] [apply flag]
 # Applies a Pod, or a one-replica Deployment when the name ends in -deploy. Prints admitted or denied.
+# The flag is passed to kubectl apply, for example --dry-run=server: the full admission chain runs, nothing is stored.
 create() {
   local kc=$KUBECONFIG; [ "$1" != admin ] && kc=$dir/$1.kubeconfig
   local labels=${5:-}; [ -z "$labels" ] && labels='{}'
+  local flag=${6:-}
   local pod out rc
   pod=$(jq -n --arg n "$3" --arg m "$mark" --argjson ro "$4" --argjson l "$labels" '{
       metadata: {labels: ($l + {($m): "run", app: $n})},
@@ -41,10 +45,10 @@ create() {
   if [[ $3 == *-deploy ]]; then
     out=$(jq -n --arg n "$3" --arg m "$mark" --argjson p "$pod" '{apiVersion: "apps/v1", kind: "Deployment",
         metadata: {name: $n, labels: {($m): "run"}}, spec: {replicas: 1, selector: {matchLabels: {app: $n}},
-        template: $p}}' | kubectl --kubeconfig "$kc" apply -n "$2" -f - 2>&1); rc=$?
+        template: $p}}' | kubectl --kubeconfig "$kc" apply ${flag:+"$flag"} -n "$2" -f - 2>&1); rc=$?
   else
     out=$(jq -n --arg n "$3" --argjson p "$pod" '{apiVersion: "v1", kind: "Pod", metadata: ($p.metadata + {name: $n}),
-        spec: $p.spec}' | kubectl --kubeconfig "$kc" apply -n "$2" -f - 2>&1); rc=$?
+        spec: $p.spec}' | kubectl --kubeconfig "$kc" apply ${flag:+"$flag"} -n "$2" -f - 2>&1); rc=$?
   fi
   if [ "$rc" -eq 0 ]; then echo admitted
   elif grep -q 'violates PodSecurity' <<<"$out"; then echo denied
@@ -91,6 +95,8 @@ check "policy istio-sidecar-for-students is Ready" true \
   "$(kubectl get mutatingpolicy istio-sidecar-for-students -o jsonpath='{.status.conditionStatus.ready}' 2>/dev/null)"
 check "native MutatingAdmissionPolicy was generated from it" mpol-istio-sidecar-for-students \
   "$(kubectl get mutatingadmissionpolicy mpol-istio-sidecar-for-students -o jsonpath='{.metadata.name}' 2>/dev/null)"
+check "policy require-istio-sidecar-for-students is Ready" true \
+  "$(kubectl get validatingpolicies.policies.kyverno.io require-istio-sidecar-for-students -o jsonpath='{.status.conditionStatus.ready}' 2>/dev/null)"
 
 echo "== sidecar injection"
 check "student01: bare pod is admitted (Pod Security baseline)" admitted "$(create student01 student01 vm-bare true)"
@@ -101,6 +107,9 @@ check "mentor: pod is admitted" admitted "$(create mentor mentor vm-mentor false
 check "default: pod is admitted" admitted "$(create admin default vm-default false)"
 check "default: pod with person=student in the manifest is admitted" admitted \
   "$(create admin default vm-person false '{"person": "student"}')"
+# The validating policy runs after the injection, so a student pod, which gets its sidecar first, is accepted.
+check "student01: dry-run of a person=student pod is accepted" admitted \
+  "$(create student01 student01 vm-dry false '{"person": "student"}' --dry-run=server)"
 kubectl wait --for=condition=Ready pod/vm-bare pod/vm-optout -n student01 --timeout="$wait" >/dev/null 2>&1
 kubectl rollout status deployment/vm-deploy -n student01 --timeout="$wait" >/dev/null 2>&1
 kubectl wait --for=condition=Ready pod/vm-mentor -n mentor --timeout="$wait" >/dev/null 2>&1
