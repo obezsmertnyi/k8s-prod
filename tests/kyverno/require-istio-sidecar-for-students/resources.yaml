@@ -1,0 +1,84 @@
+# The pod as the policy sees it: after person-label and the Istio injector have run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-sidecar-init
+  namespace: student01
+  labels:
+    person: student
+    sidecar.istio.io/inject: 'true'
+spec:
+  initContainers:
+    - name: istio-validation
+      image: docker.io/istio/proxyv2:1.31.3
+    - name: istio-proxy
+      image: docker.io/istio/proxyv2:1.31.3
+      restartPolicy: Always
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-sidecar-container
+  namespace: student01
+  labels:
+    person: student
+    sidecar.istio.io/inject: 'true'
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+    - name: istio-proxy
+      image: docker.io/istio/proxyv2:1.31.3
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-no-sidecar
+  namespace: student01
+  labels:
+    person: student
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-init-without-proxy
+  namespace: student02
+  labels:
+    person: student
+    sidecar.istio.io/inject: 'true'
+spec:
+  initContainers:
+    - name: istio-validation
+      image: docker.io/istio/proxyv2:1.31.3
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mentor-no-sidecar
+  namespace: mentor
+  labels:
+    person: mentor
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-labels-no-sidecar
+  namespace: default
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
