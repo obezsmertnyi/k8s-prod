@@ -272,4 +272,168 @@ make lint
 
 ## Live run
 
-<!-- LIVE RUN: to be filled after `make up` from zero on the pushed branch. Paste the output of `make verify` and of `flux get helmreleases -A` here. -->
+The lab was rebuilt from zero with `make down && make up` (exit 0): the cluster follows `refs/heads/module-05` at `7c49594`, everything came from Git, and the log holds 264 `ok` lines and no `FAIL`.
+
+### make up
+
+```
+Test Summary: 23 tests passed and 0 tests failed
+RBAC: all checks passed
+Policies: all checks passed
+Mesh: all checks passed
+Observability: all checks passed
+Flux: all checks passed
+```
+
+### scripts/verify-observability.sh
+
+The observability step of the same run, isolation lines included.
+
+```
+scripts/verify-observability.sh
+== releases
+  ok    helmrelease/kube-prometheus-stack is Ready                         True
+  ok    helmrelease/loki is Ready                                          True
+  ok    helmrelease/alloy is Ready                                         True
+  ok    helmrelease/observability is Ready                                 True
+  ok    Mailpit: ready replicas                                            1
+  ok    pods in monitoring that are not Ready
+  ok    Prometheus Operator CRDs: ServiceMonitor, PrometheusRule           prometheusrules.monitoring.coreos.com servicemonitors.monitoring.coreos.com
+== node load (the queries of the dashboard, run on Prometheus)
+  ok    CPU used (cores): namespaces with series                           student01,student02,student03
+  ok    CPU used (cores): every series has a node label                    0
+  ok    Share of the node's allocatable CPU: namespaces with series        student01,student02,student03
+  ok    Share of the node's allocatable CPU: every series has a node label 0
+  ok    Memory working set: namespaces with series                         student01,student02,student03
+  ok    Memory working set: every series has a node label                  0
+  ok    Running pods: namespaces with series                               student01,student02,student03
+  ok    Running pods: every series has a node label                        0
+  ok    CPU used: nodes with student load (one per worker)                 3
+== grafana
+  ok    Grafana is healthy                                                 ok
+  ok    dashboard student-node-load                                        Student namespaces: node load
+  ok    dashboard readonly-rootfs-audit                                    Read-only root filesystem audit
+  ok    data source prometheus answers                                     OK
+  ok    data source loki answers                                           OK
+  ok    data source alertmanager answers (Alertmanager version)            0.34.2
+== logs in Loki
+  ok    Loki holds pod logs of platform namespaces (kube-system, kyverno)  kube-system,kyverno
+  ok    Loki rule ReadOnlyRootFilesystemAuditFailed is loaded in the ruler ReadOnlyRootFilesystemAuditFailed
+== ReadOnlyRootFilesystemAuditFailed, end to end (pod in student03, created with its own kubeconfig)
+  ok    student03: pod with a writable root filesystem is admitted (Audit) admitted
+  ok    event line in Loki (job loki.source.kubernetes_events)             PolicyViolation: policy require-ro-rootfs/ fail: readOnlyRootFilesystem must be true; writable: app
+  ok    the pod's own log line is in Loki                                  verify-observability-hello
+  ok    Loki ruler: alert ReadOnlyRootFilesystemAuditFailed for the pod    firing
+  ok    Alertmanager: alert state and receiver                             active email
+  ok    Mailpit: subject of the mail to the configured recipient           [FIRING] ReadOnlyRootFilesystemAuditFailed in student03
+  ok    Prometheus: Kyverno fail counter for student03 rose (cross-check)  rose
+  ok    Prometheus: cross-check rule ReadOnlyRootFilesystemAuditFailedMetric is loaded and healthy ok
+  ok    test pod is removed
+== isolation: the stack accepts connections from its own namespace only (probe pod in student01, its own kubeconfig)
+  ok    NetworkPolicies in monitoring                                      allow-ingress-from-monitoring default-deny-ingress
+  ok    kindnet: no node logged 'skipping network policies'                0
+  ok    student01: probe pod is created with its own kubeconfig            created
+  ok    monitoring: control pod is created (admin)                         created
+  ok    student01 probe pod is Ready                                       True
+  ok    monitoring control pod is Ready                                    True
+  ok    student01 probe pod: exec works and loki.monitoring resolves       resolved
+  ok    control pod in monitoring -> loki                                  reachable
+  ok    student01 pod -> loki                                              blocked
+  ok    control pod in monitoring -> prometheus                            reachable
+  ok    student01 pod -> prometheus                                        blocked
+  ok    control pod in monitoring -> alertmanager                          reachable
+  ok    student01 pod -> alertmanager                                      blocked
+  ok    control pod in monitoring -> grafana                               reachable
+  ok    student01 pod -> grafana                                           blocked
+  ok    control pod in monitoring -> mailpit                               reachable
+  ok    student01 pod -> mailpit                                           blocked
+== isolation: the sidecars read this namespace only, and a student cannot load a rule or a dashboard
+  ok    Grafana dashboards sidecar searches only monitoring                monitoring
+  ok    Grafana data sources sidecar searches only monitoring              monitoring
+  ok    Loki rules sidecar searches only monitoring                        monitoring
+  ok    Grafana service account lists: ConfigMaps in monitoring, ConfigMaps and Secrets in student01 yes no no
+  ok    Loki service account lists: ConfigMaps in monitoring, ConfigMaps and Secrets in student01 yes no no
+  ok    student01 cannot create a PrometheusRule or a ServiceMonitor       no no
+  ok    student01: ConfigMaps labelled loki_rule and grafana_dashboard are created created
+  ok    monitoring: the control ConfigMaps are created (admin)             created
+  ok    Loki ruler loads the rule ConfigMap of monitoring (control)        VerifyObservabilityControl
+  ok    Loki ruler does not load the rule ConfigMap of student01           none
+  ok    Grafana loads the dashboard ConfigMap of monitoring (control)      verify-control-dash
+  ok    Grafana does not load the dashboard ConfigMap of student01         none
+  ok    isolation test pods and ConfigMaps are removed
+Observability: all checks passed
+```
+
+### Flux releases and network policies
+
+```
+$ flux get helmreleases -A
+NAMESPACE    NAME                   REVISION              SUSPENDED  READY  MESSAGE
+flux-system  alloy                  1.15.0                False      True   Helm install succeeded for release monitoring/alloy.v1 with chart alloy@1.15.0
+flux-system  istio-base             1.31.3+2c9822f5a4ce   False      True   Helm install succeeded for release istio-system/istio-base.v1 with chart base@1.31.3+2c9822f5a4ce
+flux-system  istio-cni              1.31.3+65bc2f95324d   False      True   Helm install succeeded for release istio-system/istio-cni.v1 with chart cni@1.31.3+65bc2f95324d
+flux-system  istiod                 1.31.3+c22f231186a1   False      True   Helm install succeeded for release istio-system/istiod.v1 with chart istiod@1.31.3+c22f231186a1
+flux-system  kube-prometheus-stack  92.17.0+499eaf8d480f  False      True   Helm install succeeded for release monitoring/kube-prometheus-stack.v1 with chart kube-prometheus-stack@92.17.0+499eaf8d480f
+flux-system  kyverno                3.9.2                 False      True   Helm install succeeded for release kyverno/kyverno.v1 with chart kyverno@3.9.2
+flux-system  kyverno-policies       0.1.0+7c49594de08f    False      True   Helm install succeeded for release flux-system/kyverno-policies.v1 with chart kyverno-policies@0.1.0+7c49594de08f
+flux-system  loki                   20.2.1+7110103eba8b   False      True   Helm install succeeded for release monitoring/loki.v1 with chart loki@20.2.1+7110103eba8b
+flux-system  observability          0.1.0+7c49594de08f    False      True   Helm install succeeded for release monitoring/observability.v1 with chart observability@0.1.0+7c49594de08f
+flux-system  tenants                0.1.0+7c49594de08f    False      True   Helm install succeeded for release flux-system/tenants.v1 with chart tenants@0.1.0+7c49594de08f
+
+$ kubectl get networkpolicy -n monitoring
+NAME                            POD-SELECTOR   AGE
+allow-ingress-from-monitoring   <none>         16m
+default-deny-ingress            <none>         16m
+```
+
+### The alert, end to end
+
+One pod `module05-evidence` (`busybox:1.37`, no `securityContext`) was created in `student03` with the student's own kubeconfig at 02:40:23 UTC and deleted after the evidence below was taken. Times are UTC; Grafana shows UTC+2, so 04:40 on the screenshots is 02:40 here.
+
+The event in Loki (02:40:24 UTC), selector `{job="loki.source.kubernetes_events", namespace="student03"} |= "policy require-ro-rootfs/"`:
+
+```
+name=module05-evidence kind=Pod action=Resource Passed objectAPIversion=v1 eventRV=8131 reportinginstance=kyverno-admission-kyverno-admission-controller-75c55c6475-ght82 reportingcontroller=kyverno-admission reason=PolicyViolation type=Warning msg="policy require-ro-rootfs/ fail: readOnlyRootFilesystem must be true; writable: app"
+```
+
+The alert in Alertmanager (`curl -s http://localhost:9093/api/v2/alerts`, the alert of the pod, reduced to its labels, summary, state and receiver):
+
+```
+{
+  "labels": {
+    "alertname": "ReadOnlyRootFilesystemAuditFailed",
+    "namespace": "student03",
+    "pod": "module05-evidence",
+    "severity": "warning"
+  },
+  "summary": "Pod module05-evidence in namespace student03 runs with a writable root filesystem",
+  "state": "active",
+  "receivers": [
+    "email"
+  ],
+  "startsAt": "2026-11-01T02:40:41.360Z"
+}
+```
+
+The mail in Mailpit (`curl -s 'http://localhost:8025/api/v1/search?query=module05-evidence'`, reduced to four fields). The recipient is set in the Secret `lab-settings` and is not in Git; it is shown here as `<ALERT_EMAIL>`.
+
+```
+{
+  "Created": "2026-11-01T02:40:51.41Z",
+  "From": "alertmanager@k8s-prod.lab",
+  "To": [
+    "<ALERT_EMAIL>"
+  ],
+  "Subject": "[FIRING] ReadOnlyRootFilesystemAuditFailed in student03"
+}
+```
+
+### Dashboards
+
+Read-only root filesystem audit, last 30 minutes, taken while the alert was firing: the counter is red, the Loki ruler alert is `Firing`, and the table and the log panel list the pod.
+
+![Read-only root filesystem audit dashboard with the alert firing](img/module-05-rootfs-audit.png)
+
+Student namespaces: node load, last 30 minutes. The lab had just been rebuilt, so the charts start at about 04:33. Each legend shows its first three of the nine series; the table under the charts lists all nine (three nodes, three student namespaces).
+
+![Student namespaces: node load dashboard](img/module-05-node-load.png)
