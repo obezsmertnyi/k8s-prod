@@ -1,0 +1,13 @@
+title = "k8s-prod gitleaks config"
+
+[extend]
+useDefault = true
+
+# The default private-key rule decodes base64, so it already flags a kubeconfig whose client-key-data holds a PEM key.
+# This rule flags the field itself, whatever it decodes to, so a kubeconfig with a key is still caught when the decoder
+# does not resolve it (nesting depth, truncated or re-wrapped data). client-certificate-data is public and not a rule.
+[[rules]]
+id = "kubeconfig-client-key-data"
+description = "Kubeconfig client private key (client-key-data)"
+regex = '''(?i)client-key-data:\s*["']?[A-Za-z0-9+/=]{100,}'''
+keywords = ["client-key-data"]
