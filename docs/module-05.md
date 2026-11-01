@@ -221,7 +221,7 @@ make test
 make lint
 ```
 
-`make test` runs the Kyverno tests: 23 now, one more than in Module 04. `kyverno test tests/kyverno/require-ro-rootfs` has the new case `pod-monitoring` (a writable pod in `monitoring`, expected `skip`). `make lint` runs `helm lint` and kubeconform on the new chart (ServiceMonitor and PrometheusRule are checked against the CRD schemas), kubeconform on `infrastructure/`, `releases/` and `clusters/`, and `jq empty` on the dashboard files.
+`make test` runs the Kyverno tests: 23 now, one more than in Module 04. `kyverno test tests/kyverno/require-ro-rootfs` has the new case `pod-monitoring` (a writable pod in `monitoring`, expected `skip`). `make lint` runs `scripts/validate-manifests.sh`: `helm lint` and flux-schema on the new chart (ServiceMonitor and PrometheusRule are checked against the CRD schemas) and on every Flux layer (`infrastructure/`, `releases/`, `clusters/`), then `jq empty` on the dashboard files.
 
 ### 2. The stack on the cluster
 

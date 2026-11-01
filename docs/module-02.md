@@ -235,7 +235,7 @@ The real API calls, the pod security checks and the final lines:
   ok    student02: pod security enforce label                      baseline
   ok    student03: pod security enforce label                      baseline
 == no cluster-wide binding names a person
-  ok    ClusterRoleBindings for mentor/students/groups             
+  ok    ClusterRoleBindings for mentor/students/groups
 RBAC: all checks passed
 ```
 

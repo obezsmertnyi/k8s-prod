@@ -6,8 +6,6 @@ CLUSTER        := k8s-prod
 BRANCH         ?= $(shell git rev-parse --abbrev-ref HEAD)
 FLUX_OPERATOR  := 0.62.1
 RENDERED       := .rendered
-CRD_SCHEMAS    := https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json
-KUBECONFORM    := kubeconform -strict -summary -schema-location default -schema-location '$(CRD_SCHEMAS)'
 USERS          := mentor:mentors:mentor student01:students:student01 student02:students:student02 student03:students:student03
 
 .PHONY: up cluster flux wait users verify render lint test down
@@ -51,14 +49,8 @@ render:
 	helm template kyverno-policies charts/kyverno-policies --output-dir $(RENDERED)
 
 lint:
-	helm lint charts/tenants charts/kyverno-policies charts/observability
-	helm template tenants charts/tenants | $(KUBECONFORM)
-	helm template kyverno-policies charts/kyverno-policies | $(KUBECONFORM)
-	helm template observability charts/observability | $(KUBECONFORM)
+	scripts/validate-manifests.sh
 	jq empty charts/observability/dashboards/*.json
-	kubectl kustomize infrastructure | $(KUBECONFORM)
-	kubectl kustomize releases | $(KUBECONFORM)
-	$(KUBECONFORM) clusters
 
 test: render
 	kyverno test tests/kyverno

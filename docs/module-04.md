@@ -20,7 +20,7 @@ Everything reaches the cluster through Git, like the earlier modules. `make veri
 | Kyverno | 1.19.2 (Helm chart 3.9.2), unchanged | `infrastructure/kyverno/release.yaml` |
 | Kubernetes | v1.37.0 (kind). MutatingAdmissionPolicy is stable since v1.36 | `cluster/kind.yaml` |
 
-Local tools: istioctl 1.31.3 (used by `verify-mesh.sh`), flux 2.10.0, helm v4.1.3, kubeconform 0.8.0, kyverno CLI 1.19.2.
+Local tools: istioctl 1.31.3 (used by `verify-mesh.sh`), flux 2.10.0 with the schema plugin (flux-schema 0.17.0), helm v4.1.3, kyverno CLI 1.19.2.
 
 **Why the charts come from ghcr.io.** Istio 1.31.3 is published as OCI charts at `oci://ghcr.io/istio/release/charts/{base,cni,istiod}`. The older locations stop at 1.30: `gcr.io/istio-release/charts/istiod:1.31.3` does not exist (1.30.0 does), and the classic Helm repository `https://istio-release.storage.googleapis.com/charts` lists 1.30.7 as the last release and only 1.31.0 pre-releases. Both were checked while building this module.
 
@@ -131,7 +131,7 @@ make lint
 | `mentor-optout`: pod in `mentor` with `inject: "false"` | unchanged |
 | `default-pod`: pod in `default` | unchanged |
 
-`kyverno test tests/kyverno` runs all 22 tests (13 from Module 02 and 9 new). `make lint` runs helm lint and kubeconform on the charts and on `infrastructure/`, which now includes the Istio manifests.
+`kyverno test tests/kyverno` runs all 22 tests (13 from Module 02 and 9 new). `make lint` runs helm lint and flux-schema on the charts and on every Flux layer, including the Istio OCIRepositories and HelmReleases in `infrastructure/istio/`.
 
 ### 2. The mesh on the cluster
 
