@@ -179,6 +179,100 @@ kubectl get mutatingwebhookconfiguration istio-sidecar-injector -o jsonpath='{.w
 
 ## Live run
 
-<!-- To be filled after the branch is pushed and the lab is rebuilt with `make down && make up`: revision Flux follows, `make up` summary lines, `flux get helmreleases -A`, the output of `scripts/verify-mesh.sh`, `istioctl proxy-status`, and the memory of `istio-system`. -->
+The lab was rebuilt from zero with `make down && make up` (exit 0): the cluster follows `refs/heads/module-04` at `4a36dbc`, everything came from Git (Istio 1.31.3 charts from `ghcr.io`), and the log holds 197 `ok` lines and no `FAIL`.
 
-Not yet run from Git. The mechanism was checked on the lab before the push by applying the same manifests by hand (see the commands above); the run from Git goes here.
+### make up
+
+```
+Flux: everything is Ready
+Test Summary: 22 tests passed and 0 tests failed
+RBAC: all checks passed
+Policies: all checks passed
+Mesh: all checks passed
+Flux: all checks passed
+```
+
+### scripts/verify-mesh.sh
+
+```
+== control plane
+  ok    istiod: ready replicas                                         1
+  ok    istio-cni-node: ready on every node                            4/4
+  ok    istio-system: pod security enforce label                       privileged
+  ok    policy istio-sidecar-for-students is Ready                     true
+  ok    native MutatingAdmissionPolicy was generated from it           mpol-istio-sidecar-for-students
+== sidecar injection
+  ok    student01: bare pod is admitted (Pod Security baseline)        admitted
+  ok    student01: deployment is admitted                              admitted
+  ok    student01: pod with inject=false in the manifest is admitted   admitted
+  ok    mentor: pod is admitted                                        admitted
+  ok    default: pod is admitted                                       admitted
+  ok    default: pod with person=student in the manifest is admitted   admitted
+  ok    student01: bare pod has the sidecar                            istio-validation,istio-proxy(sidecar)
+  ok    student01: deployment pod has the sidecar                      istio-validation,istio-proxy(sidecar)
+  ok    student01: inject=false in the manifest is overridden          istio-validation,istio-proxy(sidecar)
+  ok    student01: bare pod has the label sidecar.istio.io/inject      true
+  ok    student01: istio-proxy of the bare pod is ready                true
+  ok    student01: istio-proxy of the deployment pod is ready          true
+  ok    student01: the pod's own containers are only the app           app
+  ok    mentor: pod has no sidecar                                     none
+  ok    default: pod has no sidecar                                    none
+  ok    default: pod with person=student in the manifest has no sidecar none
+  ok    default: that pod has no person label either (person-label removed it) none
+  ok    mentor: pod has no label sidecar.istio.io/inject               none
+  ok    default: person=student pod has no label sidecar.istio.io/inject none
+== sidecar settings
+  ok    istio-proxy runs the version of istiod                         1.31.3
+  ok    istio-proxy requests (global.proxy.resources)                  10m/40Mi
+  ok    istio-validation replaces istio-init (no NET_ADMIN init container) none
+== mesh
+  ok    istioctl proxy-status lists the bare pod                       listed
+  ok    istioctl proxy-status lists the deployment pod                 listed
+  ok    istioctl proxy-status lists the pod with inject=false in the manifest listed
+  ok    istioctl proxy-status does not list the mentor pod             absent
+  ok    istioctl proxy-status does not list the default pod            absent
+  ok    istioctl proxy-status does not list the default person=student pod absent
+== require-ro-rootfs with the sidecar
+  ok    student01: bare pod with a read-only app passes, sidecar included pass success
+  ok    student01: deployment pod reports only the app container       fail readOnlyRootFilesystem must be true; writable: app
+Mesh: all checks passed
+```
+
+### Demo after the run
+
+```
+$ flux get helmreleases -A
+NAMESPACE    NAME              REVISION             SUSPENDED  READY  MESSAGE
+flux-system  istio-base        1.31.3+2c9822f5a4ce  False      True   Helm install succeeded for release istio-system/istio-base.v1 with chart base@1.31.3+2c9822f5a4ce
+flux-system  istio-cni         1.31.3+65bc2f95324d  False      True   Helm install succeeded for release istio-system/istio-cni.v1 with chart cni@1.31.3+65bc2f95324d
+flux-system  istiod            1.31.3+c22f231186a1  False      True   Helm install succeeded for release istio-system/istiod.v1 with chart istiod@1.31.3+c22f231186a1
+flux-system  kyverno           3.9.2                False      True   Helm install succeeded for release kyverno/kyverno.v1 with chart kyverno@3.9.2
+flux-system  kyverno-policies  0.1.0+4a36dbc18238   False      True   Helm install succeeded for release flux-system/kyverno-policies.v1 with chart kyverno-policies@0.1.0+4a36dbc18238
+flux-system  tenants           0.1.0+4a36dbc18238   False      True   Helm install succeeded for release flux-system/tenants.v1 with chart tenants@0.1.0+4a36dbc18238
+
+$ kubectl get pods -n istio-system
+NAME                      READY   STATUS    RESTARTS   AGE
+istio-cni-node-hzxtn      1/1     Running   0          3m51s
+istio-cni-node-jnpft      1/1     Running   0          3m51s
+istio-cni-node-stlkh      1/1     Running   0          3m51s
+istio-cni-node-tvdfv      1/1     Running   0          3m51s
+istiod-5c6d4d77d4-dbz2g   1/1     Running   0          2m51s
+
+$ kubectl get mutatingadmissionpolicy
+NAME                              MUTATIONS   PARAMKIND   AGE
+mpol-istio-sidecar-for-students   1           <unset>     2m23s
+
+$ kubectl get pod live-demo -n student01 -o custom-columns=NAME:.metadata.name,PERSON:.metadata.labels.person,INJECT:.metadata.labels.sidecar\.istio\.io/inject,INIT:.spec.initContainers[*].name,CONTAINERS:.spec.containers[*].name,READY:.status.containerStatuses[*].ready
+NAME        PERSON    INJECT   INIT                           CONTAINERS
+live-demo   student   true     istio-validation,istio-proxy   live-demo
+
+$ kubectl get pod live-demo -n mentor (same columns)
+NAME        PERSON   INJECT   INIT     CONTAINERS
+live-demo   mentor   <none>   <none>   live-demo
+
+$ istioctl proxy-status
+NAME                    CLUSTER        ISTIOD                      VERSION     SUBSCRIBED TYPES
+live-demo.student01     Kubernetes     istiod-5c6d4d77d4-dbz2g     1.31.3      4 (CDS,LDS,EDS,RDS)
+```
+
+The student pod has the native sidecar in `initContainers` and is the only proxy `istiod` knows; the mentor pod is untouched.
