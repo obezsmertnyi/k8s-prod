@@ -1,5 +1,6 @@
 {{- /*
-Every file in dashboards/ becomes a ConfigMap with the label the Grafana sidecar watches (grafana_dashboard: "1").
+Every file in dashboards/ becomes a ConfigMap with the label the Grafana sidecar watches (grafana_dashboard: "1"). The sidecar
+reads the monitoring namespace only, which is where this release lives (targetNamespace in releases/observability.yaml).
 The files are read with .Files, not rendered, so the {{ }} of Grafana legends stay as they are.
 */}}
 {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}

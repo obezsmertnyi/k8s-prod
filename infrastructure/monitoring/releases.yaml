@@ -146,7 +146,17 @@ spec:
           memory: 160Mi
         limits:
           memory: 384Mi
+      # The sidecars load dashboards and data sources from labelled ConfigMaps and Secrets. They read this namespace only:
+      # a student has `edit` in their own namespace and could otherwise ship a dashboard (or a data source) from there.
+      # The chart default for dashboards is ALL; the data sources sidecar defaults to its own namespace, set here so it stays so.
+      # rbac.namespaced makes the read right a Role in this namespace instead of a ClusterRole on every namespace.
+      rbac:
+        namespaced: true
       sidecar:
+        dashboards:
+          searchNamespace: monitoring
+        datasources:
+          searchNamespace: monitoring
         resources:
           requests:
             cpu: 10m
@@ -177,8 +187,8 @@ spec:
 ---
 # Loki 3.7.9 as one process on the filesystem: no object storage, no gateway, no caches, no canary. Auth is off, so every
 # stream and every rule belongs to the tenant "fake", and the ruler reads its rule files from /rules/fake. The rules
-# sidecar fills that directory from the ConfigMaps labelled loki_rule (any namespace), so a rule is added with a ConfigMap
-# and no Loki restart. The ruler sends the firing alerts to the Alertmanager of kube-prometheus-stack.
+# sidecar fills that directory from the ConfigMaps labelled loki_rule in this namespace (monitoring), so a rule is added with a
+# ConfigMap and no Loki restart. The ruler sends the firing alerts to the Alertmanager of kube-prometheus-stack.
 # It waits for that release only because the chart's ServiceMonitor needs its CRDs.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -247,6 +257,10 @@ spec:
           memory: 768Mi
       persistence:
         size: 5Gi
+    # The rules sidecar reads ConfigMaps of this namespace only (a student has `edit` in their own namespace and must not be
+    # able to ship an alert rule from there); rbac.namespaced turns its ClusterRole into a Role in this namespace.
+    rbac:
+      namespaced: true
     sidecar:
       resources:
         requests:
@@ -256,7 +270,7 @@ spec:
           memory: 128Mi
       rules:
         folder: /rules/fake
-        searchNamespace: ALL
+        searchNamespace: monitoring
         labelValue: "1"
     read:
       replicas: 0

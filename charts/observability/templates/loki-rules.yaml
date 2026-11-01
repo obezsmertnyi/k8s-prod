@@ -1,7 +1,7 @@
 {{- /*
 The Loki ruler reads its rules from files; the rules sidecar of the Loki release writes every ConfigMap with the label
-loki_rule: "1" (any namespace) into the ruler's directory. The file is read with .Files, so the {{ $labels }} of the
-alert annotations are not rendered by Helm.
+loki_rule: "1" of the monitoring namespace (the only one it reads) into the ruler's directory. The file is read with
+.Files, so the {{ $labels }} of the alert annotations are not rendered by Helm.
 */}}
 apiVersion: v1
 kind: ConfigMap

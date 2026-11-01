@@ -32,6 +32,7 @@ infrastructure/monitoring/
   repositories.yaml   OCIRepository kube-prometheus-stack and loki, HelmRepository grafana
   releases.yaml       HelmReleases kube-prometheus-stack, loki, alloy
   mailpit.yaml        Deployment and Service of Mailpit
+  networkpolicies.yaml  who may connect to the namespace (see Isolation)
 releases/observability.yaml     HelmRelease of the local chart
 charts/observability/
   dashboards/         the two Grafana dashboards (JSON)
@@ -67,7 +68,7 @@ Flux substitutes every `${...}` in the manifests of that Kustomization, not only
 |---|---|
 | Prometheus (one replica, 5 Gi volume, retention 2 days, scrape interval 30 s) | Scrapes the kubelet (cAdvisor), kube-state-metrics, node-exporter, the API server, CoreDNS and the monitoring components themselves, and the Kyverno metrics Services (ServiceMonitor in `charts/observability`) |
 | Alertmanager | Keeps the chart's null receiver and the Watchdog heartbeat, and routes `ReadOnlyRootFilesystemAuditFailed` to the `email` receiver |
-| Grafana | Data sources Prometheus, Alertmanager (both from the chart) and Loki (added). The sidecar loads every ConfigMap labelled `grafana_dashboard: "1"`, from any namespace. The chart's default dashboards are off to keep the lab small |
+| Grafana | Data sources Prometheus, Alertmanager (both from the chart) and Loki (added). The sidecar loads every ConfigMap labelled `grafana_dashboard: "1"` from the namespace `monitoring` and from no other (see [Isolation](#isolation)). The chart's default dashboards are off to keep the lab small |
 | Loki (single binary, filesystem, 5 Gi volume, retention 48 h) | Stores logs. Auth is off, so everything belongs to the tenant `fake`. The ruler evaluates the rules every 30 s and sends firing alerts to Alertmanager |
 | Alloy (one replica) | Reads the logs of all pods through the Kubernetes API and the Kubernetes events, and pushes both to Loki |
 | Mailpit | Catches the alert mail. SMTP on 1025, web UI and API on 8025 |
@@ -76,7 +77,7 @@ Choices worth knowing:
 
 - **No scrape of etcd, controller-manager, scheduler and kube-proxy.** On kind they listen on the loopback of the control plane node and cannot be reached, so their targets would be down and their rules would fire. Their ServiceMonitors and rules are switched off. The alert `NodeClockNotSynchronising` is off too: the kind nodes share the clock of the Docker VM and report it as unsynchronised.
 - **Alloy is one replica.** A DaemonSet without clustering would read every pod and every event once per node, and Loki would hold each line several times. Pod logs come through the API (`loki.source.kubernetes`), so Alloy needs no host path and runs in a plain namespace.
-- **Loki rules come from ConfigMaps.** The chart's rules sidecar watches ConfigMaps labelled `loki_rule: "1"` in all namespaces and writes them to `/rules/fake`, the directory the ruler reads for the tenant `fake`. A new rule is a ConfigMap, with no Loki restart.
+- **Loki rules come from ConfigMaps.** The chart's rules sidecar watches ConfigMaps labelled `loki_rule: "1"` in `monitoring` only (see [Isolation](#isolation)) and writes them to `/rules/fake`, the directory the ruler reads for the tenant `fake`. A new rule is a ConfigMap, with no Loki restart.
 - **Prometheus picks up rules and monitors of any chart.** The `*SelectorNilUsesHelmValues` switches are `false`, so a ServiceMonitor or PrometheusRule without the `release` label of the stack is used too.
 - **The Grafana admin password is not in Git.** The chart generates it into the Secret `kube-prometheus-stack-grafana` on the first install.
 - **`monitoring` is excluded from `require-ro-rootfs`.** It is a platform namespace, like `kube-system`, `kyverno` and `istio-system`, and the audit is about workloads. Alloy's container does not set a read-only root filesystem (every other container in the namespace does), so without the exclusion the alert would fire for the platform's own pod. The namespace is added to `excludedNamespaces` of the `kyverno-policies` chart, with a test case (`pod-monitoring`, expected `skip`).
@@ -157,6 +158,42 @@ Alertmanager (`infrastructure/monitoring/releases.yaml`) has one route in front 
 
 One limit is known: `increase()` needs a series that already exists, and Kyverno creates the series for a namespace at its first failure. The first failure recorded for a namespace after a Kyverno restart is therefore not seen by this rule. The Loki rule has no such gap, which is one more reason the log path is the one that sends the mail. The verify script checks the counter itself (it must rise) and that the rule is loaded and healthy, not the state of this alert.
 
+## Isolation
+
+A student has the built-in `edit` role in their own namespace, so a student can create ConfigMaps and pods there. Two paths led from that into the monitoring stack, and both are closed.
+
+**1. Rules and dashboards could be shipped from a student namespace.** The Loki rules sidecar (`searchNamespace: ALL`) and the Grafana dashboards sidecar (the chart sets `searchNamespace: ALL`) loaded every ConfigMap with their label from every namespace. A ConfigMap labelled `loki_rule` in `student01` became an alert rule in the ruler, and one labelled `grafana_dashboard` became a dashboard in Grafana (the sidecars read Secrets too). Now `infrastructure/monitoring/releases.yaml` sets `searchNamespace: monitoring` for the Loki rules sidecar, the Grafana dashboards sidecar and the Grafana data sources sidecar (its chart default is the sidecar's own namespace, written down so it stays so). `rbac.namespaced: true` on both charts turns the sidecars' ClusterRole (read ConfigMaps and Secrets everywhere) into a Role in `monitoring`. Our own ConfigMaps are rendered into `monitoring` because the `observability` HelmRelease has `targetNamespace: monitoring`; if they were rendered elsewhere the two dashboards and the Loki rule would be missing and `scripts/verify-observability.sh` would fail.
+
+**2. Any pod could connect to the stack.** Loki has auth off, Prometheus and Alertmanager have none, Mailpit's web UI has none: a student pod could read the logs of every namespace from Loki or the caught mail from Mailpit. `infrastructure/monitoring/networkpolicies.yaml` adds three NetworkPolicies to `monitoring` (ingress only, egress stays open):
+
+| Policy | Effect |
+|---|---|
+| `default-deny-ingress` | every pod in `monitoring` refuses connections. The next policy isolates the same pods on its own (any policy that selects a pod isolates it); the explicit deny keeps the intent visible and still closes the namespace if the allow list is ever removed |
+| `allow-ingress-from-monitoring` | except from the pods of `monitoring` itself: Alloy to Loki, Grafana to Prometheus, Loki and Alertmanager, the Loki ruler to Alertmanager, Alertmanager to Mailpit, Prometheus scraping itself and kube-state-metrics |
+| `allow-operator-admission-webhook` | TCP 10250 of the Prometheus Operator is open to any source. The API server calls the operator's admission webhook (PrometheusRule validation, `failurePolicy: Ignore`) from the control plane node, a source no selector can name. The port serves TLS admission reviews and holds no data. Without the rule every PrometheusRule would wait for the webhook timeout (10 s) and skip validation |
+
+What needs no rule: kubelet probes (kindnet does not filter traffic generated by root on the node) and `kubectl port-forward` (the runtime opens it inside the pod's own network namespace). Mailpit's UI stays without a login: its own authentication would need a password in a Secret, and the policy already keeps pods out.
+
+**What the policies do not cover.** node-exporter runs with `hostNetwork` on port 9100 of every node, and a NetworkPolicy cannot protect a host-network pod: node metrics stay readable from any pod, as before. The kubelet and the API server are not in `monitoring` and are not touched.
+
+**Does kind enforce NetworkPolicy?** Yes, since kind v0.24.0: the release notes list "Out-of-the-box support for network policy via sigs.k8s.io/kube-network-policies". The kind v0.33.0 default CNI manifest (`pkg/build/nodeimage/const_cni.go`) runs `kindnetd` image `v20260820-69b56db7`, whose ClusterRole may list and watch `networkpolicies`, and `images/kindnetd/cmd/kindnetd/main.go` wires the standard NetworkPolicy evaluator into an nftables queue. One caveat decides how the proof must look: kindnetd starts that controller with `FailOpen: true`, and if the controller cannot be created it only logs "skipping network policies" and the cluster runs without enforcement. A policy that exists is therefore no proof that it works, which is why the script tests the behaviour.
+
+**How the script proves it** (`scripts/verify-observability.sh`, section "isolation"):
+
+- The three NetworkPolicies exist, and no kindnet pod logged "skipping network policies".
+- A pod created in `student01` with student01's own kubeconfig, and a control pod created in `monitoring` by the admin, both run the same HTTP GET with a 15 s timeout. The control pod reaches Loki (`/ready`), Prometheus (`/-/ready`), Alertmanager (`/-/ready`), Grafana (`/api/health`) and Mailpit (`/readyz`); the student01 pod must not. Before that, the student01 pod must be Ready, be able to `exec`, and resolve `loki.monitoring`, so a "blocked" answer cannot be a dead pod or a DNS failure. The student01 pod has the Istio sidecar, so a blocked connection can show as a 503 from the proxy after its connect timeout instead of a plain timeout: any answer but a 2xx counts as blocked.
+- The three sidecars have `NAMESPACE=monitoring`, and the service accounts of Grafana and Loki can list ConfigMaps in `monitoring` but neither ConfigMaps nor Secrets in `student01`. student01 cannot create a PrometheusRule or a ServiceMonitor (the Operator CRDs are not part of `edit`; Prometheus selects those of every namespace, so this must stay so).
+- student01 creates a ConfigMap labelled `loki_rule` and one labelled `grafana_dashboard` in `student01`, then the admin creates the same two in `monitoring` as a control. When the control rule is in the ruler and the control dashboard is in Grafana, the script requires that the student's rule and dashboard are not.
+- Everything the script creates carries the label `verify-observability=run` and is removed on exit, also after an interrupted run.
+
+The checks can fail. Delete the two policies that close the namespace and look at the FAIL lines, then let Flux put them back:
+
+```
+kubectl delete networkpolicy default-deny-ingress allow-ingress-from-monitoring -n monitoring
+scripts/verify-observability.sh                      # the five "student01 pod -> ..." lines fail
+flux reconcile kustomization infrastructure --with-source
+```
+
 ## Memory
 
 Measured with `docker stats` on the four kind nodes, with the whole stack and the demo load running (about 30 minutes after the install):
@@ -232,6 +269,7 @@ make lint
 - Grafana is healthy, has both dashboards, and its Prometheus and Loki data sources answer (Alertmanager is asked through Grafana).
 - Loki holds pod logs of `kube-system` and `kyverno`, and the ruler has loaded the rule.
 - The pod with a writable root filesystem is admitted (Audit), and then, within bounded waits: its event line is in Loki, its own log line is in Loki, the Loki ruler alert for the pod is firing, Alertmanager holds the alert with the receiver `email`, Mailpit holds the mail to the configured recipient with the subject `[FIRING] ReadOnlyRootFilesystemAuditFailed in student03`, the Kyverno counter for `student03` has risen, and the cross-check rule is loaded and healthy.
+- Isolation (section [Isolation](#isolation)): the stack refuses a pod of student01 and accepts the control pod in its own namespace, the sidecars read `monitoring` only, and a rule or dashboard ConfigMap made by student01 is not loaded.
 
 ## Live run
 
