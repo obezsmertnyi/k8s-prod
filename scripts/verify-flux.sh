@@ -45,6 +45,7 @@ if [ $fail -ne 0 ]; then
   exit 1
 fi
 rb() { kubectl get rolebinding student01-edit -n student01 -o jsonpath='{.roleRef.name} {.subjects[0].name}' 2>/dev/null; }
+# shellcheck disable=SC2329  # run by the EXIT trap below
 restore() { [ -n "$(rb)" ] || flux reconcile helmrelease tenants -n "$ns" --force >/dev/null 2>&1; }
 trap restore EXIT
 trap 'exit 1' INT TERM

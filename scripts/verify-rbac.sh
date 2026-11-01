@@ -29,10 +29,10 @@ for user in mentor student01 student02 student03; do
     read=no; write=no
     [ "$want" != "-" ] && read=yes
     [ "$want" = "rw" ] && write=yes
-    check "$ns: get pods" $read "$(can $user get pods -n $ns)"
-    check "$ns: list secrets" $write "$(can $user list secrets -n $ns)"
-    check "$ns: create deployments" $write "$(can $user create deployments.apps -n $ns)"
-    check "$ns: delete pods" $write "$(can $user delete pods -n $ns)"
+    check "$ns: get pods" $read "$(can $user get pods -n "$ns")"
+    check "$ns: list secrets" $write "$(can $user list secrets -n "$ns")"
+    check "$ns: create deployments" $write "$(can $user create deployments.apps -n "$ns")"
+    check "$ns: delete pods" $write "$(can $user delete pods -n "$ns")"
   done
   own=$(kubectl --kubeconfig "$dir/$user.kubeconfig" config view --minify -o jsonpath='{..namespace}')
   check "cluster: * * (cluster-admin)" no "$(can $user '*' '*' --all-namespaces)"
@@ -41,7 +41,7 @@ for user in mentor student01 student02 student03; do
   check "cluster: create clusterrolebindings" no "$(can $user create clusterrolebindings --all-namespaces)"
   check "cluster: list namespaces" no "$(can $user list namespaces --all-namespaces)"
   check "cluster: list nodes" no "$(can $user list nodes --all-namespaces)"
-  check "$own: create rolebindings (no self-escalation)" no "$(can $user create rolebindings -n $own)"
+  check "$own: create rolebindings (no self-escalation)" no "$(can $user create rolebindings -n "$own")"
   check "$own: impersonate users" no "$(can $user impersonate users)"
 done
 

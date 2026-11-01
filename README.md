@@ -16,7 +16,7 @@ Homework for the course "Kubernetes in Production". The lab runs on a local kind
 - kubectl
 - helm v4
 - kyverno CLI 1.19
-- flux CLI 2.10 and kubeconform 0.8 (the second one only for `make lint`)
+- flux CLI 2.10, with the schema plugin for `make lint` (`flux plugin install schema`, flux-schema 0.17)
 - bash 4 or newer for the scripts. macOS ships `/bin/bash` 3.2, which is too old: install a current bash (`brew install bash`) and make sure it comes first in `PATH`.
 - jq and openssl, used by the scripts
 
@@ -42,7 +42,7 @@ FLUX_APP_KEY=out/flux-github-app.pem
 ```
 make up       # kind cluster, Flux, then Flux deploys Kyverno, namespaces, RBAC and policies from Git; user kubeconfigs; the checks
 make verify   # run the checks again: unit tests, RBAC matrix, policy behaviour, Flux state
-make lint     # helm lint and kubeconform on the charts and the Flux manifests
+make lint     # helm lint, then flux-schema on the rendered charts and Flux manifests (schemas and CEL rules)
 make down     # delete the cluster and the generated kubeconfigs
 ```
 
@@ -55,6 +55,18 @@ Flux reads the cluster state from GitHub, so the branch you are on must be pushe
 - [Module 02: Security and policy as code](docs/module-02.md)
 - [Module 03: GitOps with Flux and Helm charts](docs/module-03.md)
 
-## Security note
+## Security
+
+What runs where:
+
+- On your machine, after `pre-commit install` (once per clone). On every commit: checks for private keys, merge markers, large files, YAML syntax, shellcheck on `scripts/`, zizmor on the GitHub Actions files, and gitleaks on the staged changes (`.gitleaks.toml` adds a rule for kubeconfig `client-key-data`). On every push: `scripts/validate-manifests.sh` renders the charts and Flux manifests and checks them against the schemas, and the Kyverno unit tests run when charts or tests changed. The script needs helm, flux-schema (`flux plugin install schema`) and network access for the schemas.
+- On GitHub, for every push and pull request (`.github/workflows/ci.yml`): gitleaks over the whole history, all pre-commit hooks on all files, the manifest validation and the policy tests. Actions are pinned to full commit SHAs, and the tools CI downloads are checked against hashes kept in the workflow.
+- Dependabot opens one weekly pull request for new action versions and one for new pre-commit hook versions.
 
 `out/` holds private keys and kubeconfigs (the admin one and one per person, each with an embedded client certificate and key) and the GitHub App private key for Flux. It is git-ignored, together with `*.kubeconfig`. Never commit it or share its contents.
+
+If a secret leaks (committed, pushed, pasted into a chat or a log), treat it as compromised and rotate it first. Removing it from the Git history afterwards is cleanup only, it does not make the old secret safe.
+
+- User kubeconfig: delete the user's key (`rm out/kubeconfigs/keys/<user>.key`), then run `make users`. Without deleting the key, `make users` reuses it and only issues a new certificate. Kubernetes cannot revoke a client certificate, so the old one works until it expires (30 days). To cut it off at once, remove that user's RoleBindings or recreate the lab (`make down`, `make up`).
+- GitHub App key: in the App settings generate a new private key and save it as `out/flux-github-app.pem`, run `make flux` to update the secret in the cluster, then delete the old key in the App settings.
+- Any other key in `out/`, for example an SSH key: generate a new one, register the new public key where the old one was, then remove the old one.
