@@ -38,6 +38,7 @@ users:
 verify: test
 	scripts/verify-rbac.sh
 	scripts/verify-policies.sh
+	scripts/verify-mesh.sh
 	scripts/verify-flux.sh
 
 # The unit tests run on what the charts render, not on a copy of the policies.

@@ -1,0 +1,8 @@
+# privileged only because of the istio-cni node agent (hostPath, NET_ADMIN, NET_RAW). Application pods stay in the person
+# namespaces under baseline: with the CNI plugin the injected containers need no extra capability.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

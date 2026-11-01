@@ -1,0 +1,73 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: istio-sidecar-for-students
+policies:
+  - ../../../.rendered/kyverno-policies/templates/istio-sidecar-for-students.yaml
+resources:
+  - resources.yaml
+variables: values.yaml
+results:
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - student-nolabels
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - student-labels
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - student-optout
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - student-already
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - student-wrong-person
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - person-in-default
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - mentor-pod
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - mentor-optout
+    patchedResources: patched.yaml
+    result: pass
+  - policy: istio-sidecar-for-students
+    isMutatingPolicy: true
+    kind: Pod
+    resources:
+      - default-pod
+    patchedResources: patched.yaml
+    result: pass

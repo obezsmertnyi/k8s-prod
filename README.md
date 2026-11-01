@@ -17,6 +17,7 @@ Homework for the course "Kubernetes in Production". The lab runs on a local kind
 - helm v4
 - kyverno CLI 1.19
 - flux CLI 2.10 and kubeconform 0.8 (the second one only for `make lint`)
+- istioctl 1.31, used by `make verify` (`scripts/verify-mesh.sh`)
 - bash 4 or newer for the scripts. macOS ships `/bin/bash` 3.2, which is too old: install a current bash (`brew install bash`) and make sure it comes first in `PATH`.
 - jq and openssl, used by the scripts
 
@@ -40,8 +41,8 @@ FLUX_APP_KEY=out/flux-github-app.pem
 ## Quick start
 
 ```
-make up       # kind cluster, Flux, then Flux deploys Kyverno, namespaces, RBAC and policies from Git; user kubeconfigs; the checks
-make verify   # run the checks again: unit tests, RBAC matrix, policy behaviour, Flux state
+make up       # kind cluster, Flux, then Flux deploys Kyverno, Istio, namespaces, RBAC and policies from Git; user kubeconfigs; the checks
+make verify   # run the checks again: unit tests, RBAC matrix, policy behaviour, the mesh, Flux state
 make lint     # helm lint and kubeconform on the charts and the Flux manifests
 make down     # delete the cluster and the generated kubeconfigs
 ```
@@ -54,6 +55,7 @@ Flux reads the cluster state from GitHub, so the branch you are on must be pushe
 
 - [Module 02: Security and policy as code](docs/module-02.md)
 - [Module 03: GitOps with Flux and Helm charts](docs/module-03.md)
+- [Module 04: Istio service mesh](docs/module-04.md)
 
 ## Security note
 

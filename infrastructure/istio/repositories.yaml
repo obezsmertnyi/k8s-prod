@@ -1,0 +1,43 @@
+# The Istio Helm charts are published as OCI artifacts. 1.31.3 exists only on ghcr.io; gcr.io and the classic Helm
+# repository stop at 1.30.x. layerSelector hands the chart layer to the HelmRelease (chartRef).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: istio-base
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/base
+  ref:
+    tag: 1.31.3
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: istio-cni
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/cni
+  ref:
+    tag: 1.31.3
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: istiod
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/istio/release/charts/istiod
+  ref:
+    tag: 1.31.3
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
