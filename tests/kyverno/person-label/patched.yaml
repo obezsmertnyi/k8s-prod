@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-nolabels
+  namespace: student01
+  labels:
+    person: student
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-labels
+  namespace: student01
+  labels:
+    app: demo
+    person: student
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mentor-pod
+  namespace: mentor
+  labels:
+    app: demo
+    person: mentor
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: student-wrong
+  namespace: student02
+  labels:
+    app: demo
+    person: student
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: default-person
+  namespace: default
+  labels:
+    app: demo
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: default-empty
+  namespace: default
+  labels:
+    app: demo
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: default-clean
+  namespace: default
+  labels:
+    app: demo
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37

@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-pass
+  namespace: default
+spec:
+  initContainers:
+    - name: init
+      image: busybox:1.37
+      securityContext:
+        readOnlyRootFilesystem: true
+  containers:
+    - name: app
+      image: busybox:1.37
+      securityContext:
+        readOnlyRootFilesystem: true
+    - name: sidecar
+      image: busybox:1.37
+      securityContext:
+        readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-fail-container
+  namespace: default
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37
+      securityContext:
+        readOnlyRootFilesystem: true
+    - name: sidecar
+      image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-fail-init
+  namespace: default
+spec:
+  initContainers:
+    - name: init
+      image: busybox:1.37
+      securityContext:
+        readOnlyRootFilesystem: false
+  containers:
+    - name: app
+      image: busybox:1.37
+      securityContext:
+        readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-fail
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deploy-fail
+  template:
+    metadata:
+      labels:
+        app: deploy-fail
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.37
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-kube-system
+  namespace: kube-system
+spec:
+  containers:
+    - name: app
+      image: busybox:1.37

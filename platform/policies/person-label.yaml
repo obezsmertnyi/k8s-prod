@@ -1,0 +1,37 @@
+# Pods get person=student in student namespaces and person=mentor in the mentor's; anywhere else the label is
+# removed, on create and on update, so it cannot be set by hand. The role comes from the namespace label.
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  name: person-label
+spec:
+  # Only Pods carry the label; no generated rules that would relabel Deployments and other controllers themselves.
+  autogen:
+    podControllers:
+      controllers: []
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: role
+      expression: namespaceObject.metadata.?labels[?'k8s-prod.io/role'].orValue('')
+    - name: wanted
+      expression: "variables.role in ['student', 'mentor'] ? variables.role : ''"
+    - name: present
+      expression: "'person' in object.metadata.?labels.orValue({})"
+    - name: current
+      expression: object.metadata.?labels[?'person'].orValue('')
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: |
+          variables.wanted != '' && (!variables.present || variables.current != variables.wanted) ?
+            (has(object.metadata.labels) ?
+              [JSONPatch{op: "add", path: "/metadata/labels/person", value: variables.wanted}] :
+              [JSONPatch{op: "add", path: "/metadata/labels", value: {"person": variables.wanted}}]) :
+          variables.wanted == '' && variables.present ?
+            [JSONPatch{op: "remove", path: "/metadata/labels/person"}] :
+            []
