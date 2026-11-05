@@ -1,0 +1,33 @@
+{{- /*
+Access is granted only through RoleBindings to the built-in edit (read-write) and view (read-only) ClusterRoles.
+No ClusterRoleBinding names a person, and edit cannot change RBAC, so nobody here can reach cluster-admin.
+*/}}
+{{- define "tenants.rolebinding" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .user }}-{{ .role }}
+  namespace: {{ .namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .role }}
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: {{ .user }}
+{{- end }}
+{{- $mentor := .Values.mentor }}
+{{- range prepend .Values.students $mentor }}
+{{- template "tenants.rolebinding" (dict "user" $mentor "role" "edit" "namespace" .) }}
+{{- end }}
+{{- range .Values.students }}
+{{- template "tenants.rolebinding" (dict "user" . "role" "edit" "namespace" .) }}
+{{- end }}
+{{- range .Values.extraGrants }}
+{{- $grant := . }}
+{{- range .namespaces }}
+{{- template "tenants.rolebinding" (dict "user" $grant.user "role" $grant.role "namespace" .) }}
+{{- end }}
+{{- end }}

@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: person-label
 policies:
-  - ../../../platform/policies/person-label.yaml
+  - ../../../.rendered/kyverno-policies/templates/person-label.yaml
 resources:
   - resources.yaml
 variables: values.yaml

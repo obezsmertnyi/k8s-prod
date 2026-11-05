@@ -1,0 +1,24 @@
+{{- /*
+The role label is what the policies select on. Namespaces are cluster-scoped, so only the cluster admin can set it.
+Pod Security baseline is enforced so that `edit` cannot be turned into cluster-admin with a privileged or hostPath pod.
+*/}}
+{{- $ps := .Values.podSecurity }}
+{{- $namespaces := list (dict "name" .Values.mentor "role" "mentor") }}
+{{- range .Values.students }}
+{{- $namespaces = append $namespaces (dict "name" . "role" "student") }}
+{{- end }}
+{{- range $namespaces }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .name }}
+  labels:
+    {{ $.Values.roleLabel }}: {{ .role }}
+    pod-security.kubernetes.io/enforce: {{ $ps.enforce | quote }}
+    pod-security.kubernetes.io/enforce-version: {{ $ps.version | quote }}
+    pod-security.kubernetes.io/warn: {{ $ps.warn | quote }}
+    pod-security.kubernetes.io/warn-version: {{ $ps.version | quote }}
+    pod-security.kubernetes.io/audit: {{ $ps.audit | quote }}
+    pod-security.kubernetes.io/audit-version: {{ $ps.version | quote }}
+{{- end }}

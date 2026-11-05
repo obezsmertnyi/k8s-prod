@@ -4,7 +4,7 @@ kind: ValidatingPolicy
 metadata:
   name: require-ro-rootfs
 spec:
-  validationActions: [Audit]
+  validationActions: {{ toJson .Values.validationActions }}
   evaluation:
     background:
       enabled: true
@@ -19,7 +19,7 @@ spec:
       matchExpressions:
         - key: kubernetes.io/metadata.name
           operator: NotIn
-          values: [kube-system, kube-public, kube-node-lease, kyverno, local-path-storage]
+          values: {{ toJson .Values.excludedNamespaces }}
   variables:
     - name: allContainers
       expression: >-

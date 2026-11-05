@@ -2,6 +2,8 @@
 
 This page is for the reviewer. It lists what the repository builds for Module 02, the decisions behind it, and the commands that prove each claim.
 
+Since Module 03 the files under `platform/` live in the Helm charts `charts/tenants` and `charts/kyverno-policies` and are deployed by Flux, see [Module 03](module-03.md). This page describes Module 02 as delivered: paths such as `platform/namespaces.yaml` and the `kyverno` and `platform` make targets refer to that state.
+
 ## What is built
 
 | Task | What exists | Where |

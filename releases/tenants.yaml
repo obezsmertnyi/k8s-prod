@@ -1,0 +1,25 @@
+# Namespaces and RoleBindings, from charts/tenants. reconcileStrategy Revision: a chart change in Git deploys without a version bump.
+# Drift detection puts back anything deleted or edited by hand, such as a RoleBinding.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tenants
+  namespace: flux-system
+spec:
+  interval: 10m
+  releaseName: tenants
+  chart:
+    spec:
+      chart: ./charts/tenants
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+  driftDetection:
+    mode: enabled
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3

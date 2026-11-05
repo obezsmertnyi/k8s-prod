@@ -1,0 +1,21 @@
+# Applied by `make flux`, which replaces the two placeholders in the sync block: the repository URL (the origin remote
+# as an HTTPS URL, or REPO_URL=...) and the branch Flux follows (BRANCH=...). Without out/flux-app.env, a public
+# repository, it also drops `provider` and `pullSecret`, which only the GitHub App needs. Not part of the synced path.
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  distribution:
+    version: "2.10.x"
+    registry: ghcr.io/fluxcd
+  cluster:
+    type: kubernetes
+  sync:
+    kind: GitRepository
+    provider: github
+    url: "@REPO_URL@"
+    ref: refs/heads/@BRANCH@
+    path: clusters/k8s-prod
+    pullSecret: flux-system

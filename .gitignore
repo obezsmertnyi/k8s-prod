@@ -2,6 +2,8 @@
 out/
 *.kubeconfig
 .envrc
+# Output of `make render`: the policies as the chart renders them, read by the Kyverno tests.
+.rendered/
 # Course materials are the lecturer's; local reference only.
 _course-materials/
 .DS_Store

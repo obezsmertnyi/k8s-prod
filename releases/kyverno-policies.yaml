@@ -1,0 +1,26 @@
+# The two Kyverno policies, from charts/kyverno-policies. They need the Kyverno CRDs, so they wait for the kyverno release.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kyverno-policies
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: kyverno
+  interval: 10m
+  releaseName: kyverno-policies
+  chart:
+    spec:
+      chart: ./charts/kyverno-policies
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+  driftDetection:
+    mode: enabled
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3

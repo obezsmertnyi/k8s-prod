@@ -3,7 +3,7 @@ kind: Test
 metadata:
   name: require-ro-rootfs
 policies:
-  - ../../../platform/policies/require-ro-rootfs.yaml
+  - ../../../.rendered/kyverno-policies/templates/require-ro-rootfs.yaml
 resources:
   - resources.yaml
 results:

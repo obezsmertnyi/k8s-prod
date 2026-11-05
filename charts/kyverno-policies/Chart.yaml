@@ -1,0 +1,5 @@
+apiVersion: v2
+name: kyverno-policies
+description: Kyverno policies of the platform. require-ro-rootfs audits readonly root filesystems, person-label sets the person label on pods
+type: application
+version: 0.1.0

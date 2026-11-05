@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tenants
+description: Person namespaces with Pod Security labels, and the RoleBindings that give each person access
+type: application
+version: 0.1.0
