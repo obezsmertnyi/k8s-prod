@@ -1,0 +1,39 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: require-istio-sidecar-for-students
+policies:
+  - ../../../.rendered/kyverno-policies/templates/require-istio-sidecar-for-students.yaml
+resources:
+  - resources.yaml
+results:
+  - policy: require-istio-sidecar-for-students
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [student-sidecar-init]
+    result: pass
+  - policy: require-istio-sidecar-for-students
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [student-sidecar-container]
+    result: pass
+  - policy: require-istio-sidecar-for-students
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [student-no-sidecar]
+    result: fail
+  - policy: require-istio-sidecar-for-students
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [student-init-without-proxy]
+    result: fail
+  - policy: require-istio-sidecar-for-students
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [mentor-no-sidecar]
+    result: skip
+  - policy: require-istio-sidecar-for-students
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [no-labels-no-sidecar]
+    result: skip

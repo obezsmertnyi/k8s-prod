@@ -1,0 +1,38 @@
+# Pods with person=student run with the Istio sidecar: the policy sets sidecar.istio.io/inject=true on them and the Istio
+# injector adds istio-proxy. The label is set to true even if the manifest says false.
+# person-label sets person=student exactly on the pods of the namespaces with the student role and removes it elsewhere,
+# so those are the pods this policy selects. It reads the namespace role because person-label has not run yet here.
+# Kyverno turns this policy into a native MutatingAdmissionPolicy, which the API server runs before every admission
+# webhook. As a webhook mutation it would run after the Istio injector, which had already skipped the pod for lack of the
+# label, and the injector is not called a first time later (reinvocationPolicy only repeats webhooks that already ran).
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  name: istio-sidecar-for-students
+spec:
+  autogen:
+    # Only Pods carry the label; no generated rules that would label Deployments and other controllers themselves.
+    podControllers:
+      controllers: []
+    mutatingAdmissionPolicy:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  variables:
+    - name: student
+      expression: namespaceObject.metadata.?labels[?'{{ .Values.roleLabel }}'].orValue('') == 'student'
+    - name: inject
+      expression: object.metadata.?labels[?'sidecar.istio.io/inject'].orValue('')
+  mutations:
+    - patchType: JSONPatch
+      jsonPatch:
+        expression: |
+          variables.student && variables.inject != 'true' ?
+            (has(object.metadata.labels) ?
+              [JSONPatch{op: "add", path: "/metadata/labels/sidecar.istio.io~1inject", value: "true"}] :
+              [JSONPatch{op: "add", path: "/metadata/labels", value: {"sidecar.istio.io/inject": "true"}}]) :
+            []

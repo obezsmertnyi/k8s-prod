@@ -1,4 +1,5 @@
-# The two Kyverno policies, from charts/kyverno-policies. They need the Kyverno CRDs, so they wait for the kyverno release.
+# The Kyverno policies, from charts/kyverno-policies. They need the Kyverno CRDs, so they wait for the kyverno release;
+# istio-sidecar-for-students makes pods use the Istio injector, so it also waits for istiod.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -7,6 +8,7 @@ metadata:
 spec:
   dependsOn:
     - name: kyverno
+    - name: istiod
   interval: 10m
   releaseName: kyverno-policies
   chart:

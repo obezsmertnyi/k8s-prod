@@ -1,0 +1,96 @@
+# Istio 1.31.3 in sidecar mode, installed in the order the Istio docs give: base (CRDs), cni, istiod.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-base
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 5m
+  releaseName: istio-base
+  targetNamespace: istio-system
+  storageNamespace: istio-system
+  chartRef:
+    kind: OCIRepository
+    name: istio-base
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+---
+# The CNI plugin sets up the traffic redirection on the node, so injected pods get no NET_ADMIN init container and
+# pass Pod Security baseline. Defaults fit kind (/opt/cni/bin, /etc/cni/net.d, chained); only the requests are lowered.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istio-cni
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: istio-base
+  interval: 10m
+  timeout: 5m
+  releaseName: istio-cni
+  targetNamespace: istio-system
+  storageNamespace: istio-system
+  chartRef:
+    kind: OCIRepository
+    name: istio-cni
+  values:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+---
+# pilot.cni.enabled: injected pods get istio-validation instead of the privileged istio-init.
+# One replica without autoscaling and small requests keep the control plane light on the lab; global.proxy.resources
+# is what every injected sidecar gets (the chart default is 100m/128Mi requests and a 1Gi limit).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: istiod
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: istio-cni
+  interval: 10m
+  timeout: 5m
+  releaseName: istiod
+  targetNamespace: istio-system
+  storageNamespace: istio-system
+  chartRef:
+    kind: OCIRepository
+    name: istiod
+  values:
+    pilot:
+      autoscaleEnabled: false
+      replicaCount: 1
+      cni:
+        enabled: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+    global:
+      proxy:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 40Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
