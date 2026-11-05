@@ -1,0 +1,44 @@
+{{- /*
+Prometheus scrapes the metrics Services of Kyverno (port metrics-port). The admission controller counts the audit results
+as they happen, the reports controller counts the background scans: kyverno_validating_policy_results_total.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kyverno
+  namespace: {{ .Release.Namespace }}
+spec:
+  namespaceSelector:
+    matchNames: [{{ .Values.kyvernoNamespace }}]
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: kyverno
+  endpoints:
+    - port: metrics-port
+      interval: 30s
+---
+{{- /*
+A cross-check of the Loki alert on the metric, so the two signals can be compared. It looks at the admission results only:
+the background scan counts the same pod again every time it runs. It goes to the null receiver (it is not the alert that
+sends the email). increase() needs a series that already exists, so the first failure ever recorded for a namespace after
+a Kyverno restart is not seen by this rule; the Loki alert has no such gap.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: readonly-rootfs
+  namespace: {{ .Release.Namespace }}
+spec:
+  groups:
+    - name: readonly-rootfs
+      rules:
+        - alert: ReadOnlyRootFilesystemAuditFailedMetric
+          expr: |
+            sum by (resource_namespace) (
+              increase(kyverno_validating_policy_results_total{policy_name="require-ro-rootfs", result="fail", execution_cause="admission_request"}[5m])
+            ) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "Kyverno counted a require-ro-rootfs failure in namespace {{ "{{ $labels.resource_namespace }}" }}"
+            description: "kyverno_validating_policy_results_total with result=fail increased for namespace {{ "{{ $labels.resource_namespace }}" }} in the last 5 minutes. This is the metric view of the alert ReadOnlyRootFilesystemAuditFailed."

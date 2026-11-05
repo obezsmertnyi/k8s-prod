@@ -5,4 +5,4 @@ roleLabel: k8s-prod.io/role
 validationActions: [Audit]
 
 # Platform namespaces stay out of require-ro-rootfs, so the report lists workload findings only.
-excludedNamespaces: [kube-system, kube-public, kube-node-lease, kyverno, local-path-storage, istio-system]
+excludedNamespaces: [kube-system, kube-public, kube-node-lease, kyverno, local-path-storage, istio-system, monitoring]

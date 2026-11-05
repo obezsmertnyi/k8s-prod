@@ -1,0 +1,5 @@
+apiVersion: v2
+name: observability
+description: What runs on top of the monitoring stack. Two Grafana dashboards (node load of the student namespaces, read-only root filesystem audit), the Loki alert rule for the audit failure, a Prometheus cross-check on the Kyverno metric, and a small demo load in each student namespace so the node dashboard has data
+type: application
+version: 0.1.0

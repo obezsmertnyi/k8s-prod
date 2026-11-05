@@ -1,0 +1,32 @@
+# Who may connect to the monitoring stack. Loki (auth off), Prometheus, Alertmanager and Mailpit have no login and Grafana has one
+# admin password, so the network is the control: a student pod must not read every namespace's logs from Loki or the mails from
+# Mailpit. Ingress only; egress stays open (the stack reaches the API server, the kubelets and the scrape targets).
+# The policies are enforced by kindnet (kube-network-policies), the default CNI of kind.
+#
+# 1. Everything in this namespace refuses connections ...
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: monitoring
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# 2. ... except from the pods of this namespace. This is every path of the stack: Alloy to Loki, Grafana to Prometheus, Loki and
+# Alertmanager, the Loki ruler to Alertmanager, Alertmanager to Mailpit, Prometheus scraping itself and its neighbours.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-monitoring
+  namespace: monitoring
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+# 3. Nothing outside the namespace needs to get in. The Prometheus Operator admission webhook, which the API server would call
+# from a node address no selector can name, is turned off in the kube-prometheus-stack values instead of opening its port.
+# kubelet probes and `kubectl port-forward` need no rule: the probes come from root on the node, which kindnet does not filter, and
+# the runtime opens the port-forward from inside the pod's own network namespace.

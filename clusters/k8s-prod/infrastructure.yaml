@@ -1,4 +1,7 @@
-# What the platform runs on: Kyverno and Istio. wait makes this Kustomization Ready only when their HelmReleases are Ready.
+# What the platform runs on: Kyverno, Istio and the monitoring stack. wait makes this Kustomization Ready only when their
+# HelmReleases are Ready. postBuild replaces ${VAR} in the manifests with the values of the Secret lab-settings, which holds
+# settings that stay out of Git (made by `make flux` from out/lab.env). The Secret is optional and the manifests carry a
+# default, so a missing Secret is not an error. Any other ${...} in this path would be substituted too: write $${...}.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
@@ -7,10 +10,15 @@ metadata:
 spec:
   interval: 10m
   retryInterval: 1m
-  timeout: 15m
+  timeout: 25m
   path: ./infrastructure
   prune: true
   wait: true
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: lab-settings
+        optional: true
   sourceRef:
     kind: GitRepository
     name: flux-system

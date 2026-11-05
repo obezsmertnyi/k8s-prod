@@ -27,6 +27,9 @@ flux:
 	@case "$(REPO_URL)" in https://*) ;; *) echo "cannot derive an HTTPS URL from the origin remote: pass REPO_URL=https://github.com/<owner>/<repo>.git" >&2; exit 1 ;; esac
 	helm upgrade --install flux-operator oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator \
 		--version $(FLUX_OPERATOR) --namespace flux-system --create-namespace --wait --timeout 5m
+	@# Values Flux substitutes into the manifests (the alert recipient) live in out/lab.env, not in Git.
+	@if [ -s out/lab.env ]; then kubectl create secret generic lab-settings --namespace flux-system \
+		--from-env-file out/lab.env --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -; fi
 	@if [ -s out/flux-app.env ]; then \
 		set -a; . out/flux-app.env; set +a; \
 		flux create secret githubapp flux-system --namespace flux-system --app-client-id "$$FLUX_APP_CLIENT_ID" \
@@ -49,6 +52,7 @@ verify: test
 	scripts/verify-rbac.sh
 	scripts/verify-policies.sh
 	scripts/verify-mesh.sh
+	scripts/verify-observability.sh
 	scripts/verify-flux.sh
 
 # The unit tests run on what the charts render, not on a copy of the policies.
@@ -58,6 +62,7 @@ render:
 
 lint:
 	scripts/validate-manifests.sh
+	jq empty charts/observability/dashboards/*.json
 
 test: render
 	kyverno test tests/kyverno

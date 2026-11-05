@@ -32,3 +32,8 @@ results:
     kind: Pod
     resources: [pod-kube-system]
     result: skip
+  - policy: require-ro-rootfs
+    isValidatingPolicy: true
+    kind: Pod
+    resources: [pod-monitoring]
+    result: skip

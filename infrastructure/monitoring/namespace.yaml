@@ -1,0 +1,6 @@
+# No Pod Security label: node-exporter needs hostNetwork, hostPID and hostPath, so this namespace stays at the cluster default.
+# Nobody but the cluster admin has any right here (Module 02), and require-ro-rootfs skips it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring

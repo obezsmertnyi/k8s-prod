@@ -1,0 +1,22 @@
+# Student namespaces that get the demo load. Keep in step with `students` of the tenants chart.
+students:
+  - student01
+  - student02
+  - student03
+
+# A small Deployment in each student namespace so the node-load dashboard shows data. It burns CPU in a shell loop
+# (busybox), one replica on each of the three workers, with a read-only root filesystem so it does not trigger the audit alert.
+demoLoad:
+  enabled: true
+  image: busybox:1.37
+  replicas: 3
+  resources:
+    requests:
+      cpu: 25m
+      memory: 8Mi
+    limits:
+      cpu: 50m
+      memory: 32Mi
+
+# Namespace of the Kyverno release, scraped for the cross-check on the audit result metric.
+kyvernoNamespace: kyverno
